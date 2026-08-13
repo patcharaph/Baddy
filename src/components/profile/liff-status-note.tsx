@@ -13,6 +13,7 @@ export function LiffStatusNote() {
 
   const body = {
     loading: "กำลังเชื่อมต่อ LINE…",
+    "signing-in": "กำลังเข้าสู่ระบบ…",
     ready: profile ? `เข้าสู่ระบบด้วย LINE: ${profile.displayName}` : "",
     "logged-out": "ยังไม่ได้เข้าสู่ระบบ LINE",
     browser:

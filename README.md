@@ -85,6 +85,31 @@ lib/sample ────────┘
 "คอร์ทไหนว่าง" เป็น logic ที่พังได้ง่ายสุด จึงเขียนเป็น pure function แล้วเทสต์
 โดยไม่ต้องมี DB (ปัจจุบัน 80 เทสต์รวมทั้ง engine และ mapper)
 
+### Auth: LINE → Supabase
+
+Supabase **ไม่มี LINE provider** และไม่มีตัวเลือก OIDC ทั่วไป — third-party auth
+รองรับแค่ Clerk / Firebase / Auth0 / Cognito / WorkOS สะพานจึงต้องสร้างเอง:
+
+```
+LIFF id token ──► POST /api/auth/line
+                    │  ตรวจกับ api.line.me/oauth2/v2.1/verify
+                    │  หา/สร้าง auth user (magic link)
+                    │  verifyOtp ฝั่ง server → เซ็ต cookie
+                    ▼
+                  players.auth_user_id ──► RLS มองเห็นว่าใครเรียก
+```
+
+**ทำไมไม่ sign JWT เองด้วย project secret** — สั้นกว่าก็จริง แต่ได้ token ที่ไม่มี
+refresh path และข้าม auth server ไปเลย เส้นทาง `generateLink` → `verifyOtp` ให้
+session ปกติที่ refresh และ revoke ได้เหมือน session อื่น
+
+**client ส่งมาแค่ id token** ตัวตนทั้งหมดมาจากคำตอบของ LINE — ถ้ารับ userId จาก
+client ตรง ๆ ใครก็สวมรอยเป็นใครก็ได้ และ token ถูก redeem ฝั่ง server เพื่อให้
+access/refresh token ลง httpOnly cookie โดยไม่ผ่านเบราว์เซอร์
+
+โปรไฟล์ผูกด้วย `line_user_id` ไม่ใช่ auth user — คนที่ถูกเพิ่มเข้าก๊วนก่อนเคยเปิดแอป
+มี row อยู่แล้ว การ sign-in ครั้งแรกจะ claim row เดิม ไม่สร้างซ้ำจนประวัติหาย (ADR-2)
+
 ### Realtime
 
 `useRealtimeBoard` ไม่เอา payload จาก realtime มาแปะหน้าจอตรง ๆ แต่ใช้เป็นสัญญาณ
@@ -111,9 +136,6 @@ plain object — กติกาความยุติธรรมของค
 
 ## สิ่งที่ยังไม่ได้ทำ (ตั้งใจ)
 
-- **auth LINE → Supabase** — ตัวใหญ่สุดที่เหลือ Supabase ไม่มี LINE provider ในตัว
-  ต้องมี route handler ตรวจ LIFF id token กับ LINE API แล้วออก Supabase session เอง
-  ระหว่างนี้ใช้ `DEV_BYPASS_RLS=1` แทน
 - LINE webhook, push notification (waitlist เลื่อน / สรุปยอด)
 - การสร้าง QR พร้อมเพย์จริง — ตอนนี้เป็น placeholder โดยตั้งใจ
 - Flow สร้างก๊วน / เข้าร่วมด้วยลิงก์เชิญ / RSVP / เช็คอิน (FR-1 ถึง FR-3)
