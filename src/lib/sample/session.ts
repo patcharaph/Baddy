@@ -74,7 +74,9 @@ export const SAMPLE_SESSION = {
   venue: "Smash 44",
   dateLabel: "26 ต.ค.",
   timeLabel: "20:00–23:00",
-  courtCount: 3,
+  // Four courts booked, three in play — so the "next match" proposal has
+  // somewhere to go, which is the normal state mid-session.
+  courtCount: 4,
   /** Total court cost for the session. */
   courtTotal: 900,
   splitMode: "buffet" as SplitMode,

@@ -30,16 +30,22 @@ npm run dev          # http://localhost:3000 → /queue
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | eslint |
 
-### ตั้งค่า LINE + Supabase
+### เชื่อม Supabase
 
 ```bash
-cp .env.example .env.local
+cp .env.example .env.local     # แล้วกรอก URL + anon key + service role key
+npm run db:push                # apply supabase/migrations/0001_init.sql
+npm run db:seed                # ใส่รอบเล่นตัวอย่างลง DB จริง
 ```
 
-แล้วกรอกค่าตาม comment ในไฟล์ จากนั้นรัน migration:
+ระหว่างที่ยังไม่ได้ทำ auth ให้ใส่ `DEV_BYPASS_RLS=1` ใน `.env.local` ด้วย —
+ไม่งั้น RLS จะคืนค่าว่าง เพราะยังไม่มีผู้ใช้ให้ policy รู้จัก ตัวนี้อ่านด้วย service
+role และ **ถูกบล็อกไม่ให้ทำงานใน production build**
+
+เมื่อมี project จริงแล้ว ให้ generate types แทนการแก้มือ:
 
 ```bash
-npx supabase db push        # หรือ paste supabase/migrations/0001_init.sql ใน SQL editor
+npm run db:types
 ```
 
 ---
@@ -53,13 +59,40 @@ src/
   components/          UI ตาม design token ของ mockup
   lib/
     domain/            ★ queue engine + cost engine (pure TS, มีเทสต์)
+    data/              ★ mappers (มีเทสต์) + queries + mutations + realtime
     supabase/          browser / server / admin client + types
     liff/              LIFF provider
-    sample/            ข้อมูลตัวอย่างสำหรับรันโดยไม่มี backend
+    sample/            ข้อมูลตัวอย่าง รูปร่างเดียวกับที่ query คืนมา
+scripts/seed.ts        ใส่ข้อมูลตัวอย่างลง Supabase จริง
 supabase/
   migrations/          schema + RLS + realtime
 docs/                  requirement ต้นทาง
 ```
+
+### ข้อมูลไหลยังไง
+
+```
+Supabase rows ──► data/mappers ──► domain engines ──► หน้าจอ
+     หรือ                            (คิว/ยอดเงิน)
+lib/sample ────────┘
+```
+
+`data/source.ts` เป็นตัวเลือกแหล่งข้อมูล คืนได้ 3 สถานะ — `live` (มี session จริง),
+`empty` (ต่อ Supabase แล้วแต่ยังไม่มีรอบเปิด), `sample` (ยังไม่ได้ตั้ง env)
+หน้าจอเห็นเป็น `BoardView` เหมือนกันหมด ไม่รู้ว่าข้อมูลมาจากไหน
+
+**mappers อยู่แยกจาก queries เพราะทดสอบได้** — "ใครนับว่ารอคิวอยู่", "เล่นไปกี่เกม",
+"คอร์ทไหนว่าง" เป็น logic ที่พังได้ง่ายสุด จึงเขียนเป็น pure function แล้วเทสต์
+โดยไม่ต้องมี DB (ปัจจุบัน 80 เทสต์รวมทั้ง engine และ mapper)
+
+### Realtime
+
+`useRealtimeBoard` ไม่เอา payload จาก realtime มาแปะหน้าจอตรง ๆ แต่ใช้เป็นสัญญาณ
+ให้ `router.refresh()` ไปอ่านใหม่ผ่านทางเดิม — ถ้าเอา payload มาใช้ตรง ๆ จะต้อง
+maintain กติกาคิวซ้ำอีกชุดฝั่ง client และถ้ามี event หลุดกระดานจะเพี้ยนเงียบ ๆ
+
+มี fallback poll (60 วิ ตอนต่อติด / 10 วิ ตอนหลุด) และ re-fetch เมื่อ webview
+กลับมา foreground เพราะ socket ใน LINE ตายทุกครั้งที่แอปถูกพับลง
 
 ### ทำไม engine ถึงเป็น pure function
 
@@ -78,13 +111,13 @@ plain object — กติกาความยุติธรรมของค
 
 ## สิ่งที่ยังไม่ได้ทำ (ตั้งใจ)
 
-Scaffold นี้จบที่ schema + engine + หน้าจอ ยังไม่มี:
-
-- การเชื่อม UI เข้ากับ Supabase จริง (ตอนนี้อ่านจาก `sample/`)
-- Realtime subscription ของกระดานคิว — schema เปิด publication ไว้แล้ว
+- **auth LINE → Supabase** — ตัวใหญ่สุดที่เหลือ Supabase ไม่มี LINE provider ในตัว
+  ต้องมี route handler ตรวจ LIFF id token กับ LINE API แล้วออก Supabase session เอง
+  ระหว่างนี้ใช้ `DEV_BYPASS_RLS=1` แทน
 - LINE webhook, push notification (waitlist เลื่อน / สรุปยอด)
 - การสร้าง QR พร้อมเพย์จริง — ตอนนี้เป็น placeholder โดยตั้งใจ
 - Flow สร้างก๊วน / เข้าร่วมด้วยลิงก์เชิญ / RSVP / เช็คอิน (FR-1 ถึง FR-3)
+- waitlist auto-promote (US-2.4) — schema รองรับแล้วแต่ยังไม่มี logic
 
 ---
 

@@ -20,7 +20,7 @@ export type MatchStatus = "queued" | "playing" | "done";
 
 export type SplitMode = "buffet" | "per_game" | "even";
 
-interface PlayersRow {
+type PlayersRow = {
   id: string;
   auth_user_id: string | null;
   line_user_id: string;
@@ -31,7 +31,7 @@ interface PlayersRow {
   created_at: string;
 }
 
-interface GuansRow {
+type GuansRow = {
   id: string;
   name: string;
   home_venue: string | null;
@@ -42,7 +42,7 @@ interface GuansRow {
   created_at: string;
 }
 
-interface MembershipsRow {
+type MembershipsRow = {
   id: string;
   guan_id: string;
   player_id: string;
@@ -50,7 +50,7 @@ interface MembershipsRow {
   joined_at: string;
 }
 
-interface SessionsRow {
+type SessionsRow = {
   id: string;
   guan_id: string;
   venue: string | null;
@@ -68,7 +68,7 @@ interface SessionsRow {
   created_at: string;
 }
 
-interface SessionParticipantsRow {
+type SessionParticipantsRow = {
   id: string;
   session_id: string;
   player_id: string;
@@ -79,7 +79,7 @@ interface SessionParticipantsRow {
   created_at: string;
 }
 
-interface MatchesRow {
+type MatchesRow = {
   id: string;
   session_id: string;
   court_no: number;
@@ -89,12 +89,12 @@ interface MatchesRow {
   created_at: string;
 }
 
-interface MatchPlayersRow {
+type MatchPlayersRow = {
   match_id: string;
   player_id: string;
 }
 
-interface ShuttleLogsRow {
+type ShuttleLogsRow = {
   id: string;
   session_id: string;
   match_id: string | null;
@@ -105,7 +105,7 @@ interface ShuttleLogsRow {
   logged_by: string | null;
 }
 
-interface CostSharesRow {
+type CostSharesRow = {
   id: string;
   session_id: string;
   player_id: string;
@@ -118,9 +118,25 @@ interface CostSharesRow {
   computed_at: string;
 }
 
-/** Columns with a database default are optional on insert. */
-type Insert<Row, Optional extends keyof Row> = Omit<Row, Optional> &
-  Partial<Pick<Row, Optional>>;
+/** Columns that accept NULL, which therefore need not be supplied. */
+type NullableKeys<Row> = {
+  [K in keyof Row]-?: null extends Row[K] ? K : never;
+}[keyof Row];
+
+/**
+ * Insert shape: everything is required except columns with a database default
+ * (`Optional`) and columns that accept NULL.
+ *
+ * Note that the row types below must be `type` aliases, not `interface`.
+ * PostgREST checks the schema against `Record<string, unknown>`, and an
+ * interface has no implicit index signature, so declaring these as interfaces
+ * silently collapses every table to `never`.
+ */
+type Insert<Row, Optional extends keyof Row> = Omit<
+  Row,
+  Optional | NullableKeys<Row>
+> &
+  Partial<Pick<Row, Optional | NullableKeys<Row>>>;
 
 type Table<Row, Optional extends keyof Row> = {
   Row: Row;
@@ -129,7 +145,17 @@ type Table<Row, Optional extends keyof Row> = {
   Relationships: [];
 };
 
+/**
+ * Empty sections must be written this way, not as `Record<string, never>`.
+ *
+ * PostgREST resolves a table as `Tables & Views`, so a `Record<string, never>`
+ * for Views collapses every table to `never` and every insert stops
+ * typechecking. This is also the form `supabase gen types` emits.
+ */
+type Empty = { [_ in never]: never };
+
 export interface Database {
+  __InternalSupabase: { PostgrestVersion: "12" };
   public: {
     Tables: {
       players: Table<PlayersRow, "id" | "created_at">;
@@ -161,7 +187,7 @@ export interface Database {
         | "total"
       >;
     };
-    Views: Record<string, never>;
+    Views: Empty;
     Functions: {
       current_player_id: { Args: Record<string, never>; Returns: string };
       is_guan_member: { Args: { target_guan_id: string }; Returns: boolean };
@@ -174,6 +200,6 @@ export interface Database {
       match_status: MatchStatus;
       split_mode: SplitMode;
     };
-    CompositeTypes: Record<string, never>;
+    CompositeTypes: Empty;
   };
 }
