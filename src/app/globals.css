@@ -1,0 +1,43 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens ported from docs/line-guan-badminton-ui-mockup.html
+ * Keep these names in sync with the mockup so a design change has one source.
+ */
+@theme {
+  --color-screen: #f5f6fb;
+  --color-surface: #ffffff;
+  --color-ink: #17213e;
+  --color-muted: #6c7690;
+  --color-line: #e7eaf2;
+  --color-primary: #ff6a45;
+  --color-primary-ink: #c8462a;
+  --color-court: #12908a;
+  --color-court-bg: #e4f3f1;
+  --color-pending: #e39a2b;
+  --color-pending-bg: #fcf1de;
+  --color-paid: #12908a;
+  --color-paid-bg: #e4f3f1;
+  --color-chip: #eef1f8;
+  --color-navy: #1b2547;
+  --color-me-bg: #fff3ef;
+
+  --font-display: var(--font-anuphan), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-plex-thai), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  /* LIFF renders inside LINE's webview — the mockup is light-only by design. */
+  html {
+    color-scheme: light;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-screen);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    overscroll-behavior-y: none;
+  }
+}
