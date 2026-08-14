@@ -46,6 +46,33 @@ export interface LiveCourtView {
   playerIds: string[];
 }
 
+/** One row of the check-in screen: a player plus where they stand this session. */
+export interface RosterEntryView {
+  player: PlayerView;
+  status: ParticipantStatus;
+  /** Epoch ms of their check-in, or null if they have not arrived. */
+  checkInAt: number | null;
+  waitlistPosition: number | null;
+}
+
+/** One `+1` the organizer tapped, as the shuttle log renders it. */
+export interface ShuttleEntryView {
+  id: string;
+  loggedAt: number;
+  courtNo: number | null;
+  /** The match's position in the session, so the log reads "แมตช์ที่ 9". */
+  matchNo: number | null;
+  count: number;
+}
+
+export interface ShuttleSummaryView {
+  count: number;
+  /** What a shuttle costs this session — the last price actually logged. */
+  unitPrice: number;
+  /** Newest first. Only the tail the log screen shows. */
+  recent: ShuttleEntryView[];
+}
+
 /** Everything the queue board needs, already shaped for rendering. */
 export interface BoardView {
   session: SessionView;
@@ -54,9 +81,12 @@ export interface BoardView {
   /** Checked-in players who are off court, in fairness order. */
   queue: QueueEntryView[];
   waitlist: PlayerView[];
+  /** Everyone attached to this session, however they are attached. */
+  roster: RosterEntryView[];
   checkedInCount: number;
   /** Court numbers with no live match — what the queue engine fills. */
   freeCourts: number[];
+  shuttles: ShuttleSummaryView;
 }
 
 export interface QueueEntryView {
@@ -91,7 +121,10 @@ export interface MatchRow {
 }
 
 export interface ShuttleLogRow {
+  id: string;
   match_id: string | null;
+  court_no: number | null;
+  logged_at: string;
   count: number;
   unit_price: number;
 }

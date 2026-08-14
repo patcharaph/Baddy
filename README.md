@@ -7,7 +7,11 @@ Requirements และที่มาของทุกการตัดสิ�
 [User stories](./docs/line-guan-badminton-user-stories.md) ·
 [Technical requirements & ADR](./docs/line-guan-badminton-technical-req.md) ·
 [Marketing plan](./docs/line-guan-badminton-marketing-plan.md) ·
-[UI mockup](./docs/line-guan-badminton-ui-mockup.html)
+[ADR](./docs/line-guan-badminton-adr.md)
+
+หน้าจอทั้งหมดสร้างตาม LIFF prototype ใน
+[`docs/Mobile app design planning.zip`](./docs) — accent เขียวมะนาว `#C8FF3D`
+มีทั้งธีมมืดและสว่าง token อยู่ใน `src/app/globals.css` ที่เดียว
 
 ---
 
@@ -15,12 +19,13 @@ Requirements และที่มาของทุกการตัดสิ�
 
 ```bash
 npm install
-npm run dev          # http://localhost:3000 → /queue
+npm run dev          # http://localhost:3000
 ```
 
 รันได้เลยโดยไม่ต้องตั้งค่าอะไร — ถ้ายังไม่มี env จะใช้ข้อมูลตัวอย่างใน
 `src/lib/sample/session.ts` ซึ่งไหลผ่าน queue engine และ cost engine ตัวจริง
-(ไม่ใช่ตัวเลขที่ hardcode ไว้)
+(ไม่ใช่ตัวเลขที่ hardcode ไว้) และจะมีแถบ **SAMPLE DATA** ให้สลับดูระหว่าง
+มุมมองหัวหน้าก๊วนกับผู้เล่นได้ ทุกหน้าจอในดีไซน์แยกสองบทบาทนี้
 
 | คำสั่ง | ทำอะไร |
 |--------|--------|
@@ -55,8 +60,10 @@ npm run db:types
 ```
 src/
   app/
-    (tabs)/            3 แท็บตาม mockup — queue / money / profile
-  components/          UI ตาม design token ของ mockup
+    (tabs)/            7 หน้าจอตาม prototype
+                       / (รอบวันนี้) · checkin · queue · shuttle
+                       money · settle · profile
+  components/          UI primitives ตาม design token ใน globals.css
   lib/
     domain/            ★ queue engine + cost engine (pure TS, มีเทสต์)
     data/              ★ mappers (มีเทสต์) + queries + mutations + realtime
@@ -81,9 +88,32 @@ lib/sample ────────┘
 `empty` (ต่อ Supabase แล้วแต่ยังไม่มีรอบเปิด), `sample` (ยังไม่ได้ตั้ง env)
 หน้าจอเห็นเป็น `BoardView` เหมือนกันหมด ไม่รู้ว่าข้อมูลมาจากไหน
 
+มันคืน `viewer` (`{ playerId, role }`) มาด้วยเสมอ — ดีไซน์แยกหัวหน้าก๊วนกับผู้เล่น
+ทุกหน้า การให้แต่ละหน้าไปเดาเอาเองคือทางที่ปุ่มของหัวหน้าก๊วนจะหลุดไปโผล่ฝั่งผู้เล่น
+บทบาทมาจาก `memberships.role` ตอนต่อ Supabase และมาจาก cookie ของแถบ preview
+ตอนใช้ข้อมูลตัวอย่าง (`data/viewer.ts`)
+
 **mappers อยู่แยกจาก queries เพราะทดสอบได้** — "ใครนับว่ารอคิวอยู่", "เล่นไปกี่เกม",
 "คอร์ทไหนว่าง" เป็น logic ที่พังได้ง่ายสุด จึงเขียนเป็น pure function แล้วเทสต์
-โดยไม่ต้องมี DB (ปัจจุบัน 80 เทสต์รวมทั้ง engine และ mapper)
+โดยไม่ต้องมี DB (ปัจจุบัน 101 เทสต์รวมทั้ง engine และ mapper)
+
+### ธีม (มืด / สว่าง)
+
+โค้ดหน้าจอ **ไม่มีสีดิบเลย** — ไม่มี `text-white/45`, ไม่มี hex ลอย ๆ มีแต่ token
+เชิงความหมาย (`bg-surface` `text-muted` `border-line` `text-accent` …) เพราะ
+`white/45` เป็น "ตัวหนังสือรอง" ได้แค่ในธีมเดียว อีกธีมมันหายไปเลย
+
+lime แตกเป็นสองบทบาท — `accent-fill` คือลายเซ็นแบรนด์ที่ใช้เป็น**พื้น** (อยู่รอดทั้ง
+สองธีมเพราะตัวหนังสือบนนั้นเกือบดำ) ส่วน `accent` คือ lime ที่ใช้เป็น**ตัวหนังสือ**
+ซึ่งต้องเข้มลงเป็นเขียวมะกอกบนพื้นสว่างถึงจะอ่านออก (คอนทราสต์ ≈ 5.9:1)
+
+ผู้ใช้เลือกได้ 3 แบบที่หน้าโปรไฟล์ — **ตามระบบ / สว่าง / มืด** เก็บใน cookie
+ไม่ใช่ localStorage เพราะ `<html data-theme>` ถูก render จาก server ถ้าใช้
+localStorage ต้องมี script บล็อกใน `<head>` กันจอกระพริบ ซึ่งใน webview ของ LINE
+จะกระพริบตอนที่ sheet กำลังเปิดพอดี
+
+- ไม่ได้เลือก → ไม่ใส่ attribute ปล่อยให้ `prefers-color-scheme` ตัดสิน
+- เลือกแล้ว → `data-theme="light|dark"` ชนะ media query
 
 ### Auth: LINE → Supabase
 
@@ -138,7 +168,8 @@ plain object — กติกาความยุติธรรมของค
 
 - LINE webhook, push notification (waitlist เลื่อน / สรุปยอด)
 - การสร้าง QR พร้อมเพย์จริง — ตอนนี้เป็น placeholder โดยตั้งใจ
-- Flow สร้างก๊วน / เข้าร่วมด้วยลิงก์เชิญ / RSVP / เช็คอิน (FR-1 ถึง FR-3)
+- Flow สร้างก๊วน / เข้าร่วมด้วยลิงก์เชิญ / RSVP (FR-1, FR-2)
+- สถิติสะสมข้ามรอบในหน้าโปรไฟล์ — ตอนนี้แสดงเฉพาะรอบที่เปิดอยู่
 - waitlist auto-promote (US-2.4) — schema รองรับแล้วแต่ยังไม่มี logic
 
 ---

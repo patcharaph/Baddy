@@ -27,7 +27,7 @@ export function BoardLiveSync({
   if (!enabled || status === "live" || status === "connecting") return null;
 
   return (
-    <p className="mx-4 mb-4 rounded-xl bg-pending-bg px-3 py-2 text-[11px] text-pending">
+    <p className="mx-4 mb-4 rounded-[14px] border border-warn-line bg-warn-bg px-3 py-2.5 text-[11.5px] text-warn">
       การเชื่อมต่อสดหลุด — กำลังรีเฟรชให้เองทุก 10 วินาที
     </p>
   );

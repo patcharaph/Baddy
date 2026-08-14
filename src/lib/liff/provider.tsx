@@ -39,6 +39,10 @@ export interface LiffState {
   error: string | null;
   login: () => void;
   logout: () => void;
+  /** Close the LIFF window. A no-op outside LINE, where there is nothing to close. */
+  close: () => void;
+  /** False in browser mode, so the header can hide a close button that would do nothing. */
+  canClose: boolean;
 }
 
 const LiffContext = createContext<LiffState | null>(null);
@@ -153,6 +157,11 @@ export function LiffProvider({ children }: { children: ReactNode }) {
           setStatus("logged-out");
         });
       },
+      close: () => {
+        if (!hasLiffConfig) return;
+        void import("@line/liff").then((m) => m.default.closeWindow());
+      },
+      canClose: hasLiffConfig,
     }),
     [status, profile, idToken, error],
   );

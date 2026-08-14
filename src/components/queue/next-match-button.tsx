@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 
-import { Avatar, SkillChip } from "@/components/ui";
+import { Notice } from "@/components/ui";
 import { startMatch } from "@/lib/data/mutations";
 import type { PlayerView, QueueEntryView } from "@/lib/data/types";
 import {
@@ -16,7 +16,9 @@ import {
  * Proposes the next match, then puts it on court (PRD FR-4).
  *
  * The proposal is shown before it is committed so the organizer can still swap
- * someone in — auto-fair by default, manual when they disagree (US-3.2).
+ * someone in — auto-fair by default, manual when they disagree (US-3.2). Without
+ * that step the fairness rules would be something done *to* the guan rather than
+ * something it can overrule.
  */
 export function NextMatchButton({
   sessionId,
@@ -54,11 +56,7 @@ export function NextMatchButton({
 
   const propose = () => {
     setError(null);
-    const { matches } = buildNextMatches({
-      candidates,
-      freeCourts,
-      now,
-    });
+    const { matches } = buildNextMatches({ candidates, freeCourts, now });
     setProposal(matches[0] ?? null);
   };
 
@@ -89,23 +87,19 @@ export function NextMatchButton({
   const blocked = tooFewPlayers || noFreeCourt;
 
   return (
-    <div className="mt-4">
-      {error ? (
-        <p className="mb-3 rounded-xl bg-pending-bg px-3 py-2 text-[11.5px] text-pending">
-          {error}
-        </p>
-      ) : null}
+    <div className="mt-2 flex flex-col gap-3">
+      {error ? <Notice>{error}</Notice> : null}
 
       {proposal ? (
-        <div className="mb-3 rounded-2xl border border-primary bg-me-bg px-3 py-3">
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="font-display text-sm font-semibold">
+        <section className="flex flex-col gap-3 rounded-[18px] border border-accent-line bg-surface accent-glow p-3.5 shadow-card">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold">
               แมตช์ถัดไป · คอร์ท {proposal.courtNo}
             </h3>
             <button
               type="button"
               onClick={() => setProposal(null)}
-              className="text-[11px] font-semibold text-primary-ink"
+              className="text-[11.5px] font-semibold text-accent"
             >
               ยกเลิก
             </button>
@@ -117,19 +111,14 @@ export function NextMatchButton({
               return (
                 <li
                   key={id}
-                  className="flex items-center gap-[7px] rounded-xl bg-surface px-2 py-1.5 text-[13px]"
+                  className="flex min-h-11 items-center gap-2 rounded-xl bg-inset px-2.5 py-1.5"
                 >
-                  <Avatar
-                    name={player?.displayName ?? "?"}
-                    color={player?.color ?? "#5B6BB0"}
-                    size={22}
-                  />
-                  <span className="truncate">{player?.displayName ?? id}</span>
-                  {player?.skillLevel ? (
-                    <span className="ml-auto">
-                      <SkillChip level={player.skillLevel} />
-                    </span>
-                  ) : null}
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium">
+                    {player?.displayName ?? id}
+                  </span>
+                  <span className="shrink-0 font-mono text-[10px] text-faint">
+                    {player?.skillLevel ?? "—"}
+                  </span>
                 </li>
               );
             })}
@@ -148,7 +137,7 @@ export function NextMatchButton({
             type="button"
             onClick={commit}
             disabled={!canStart || pending}
-            className="mt-3 w-full rounded-xl bg-navy py-2.5 font-display text-[13.5px] font-semibold text-white disabled:opacity-40"
+            className="min-h-12 rounded-[14px] bg-accent-fill text-sm font-bold text-on-accent transition-colors hover:bg-accent-fill-hover disabled:opacity-40"
           >
             {pending
               ? "กำลังเริ่ม…"
@@ -156,14 +145,14 @@ export function NextMatchButton({
                 ? `เริ่มเล่น คอร์ท ${proposal.courtNo}`
                 : "เริ่มเล่นได้เมื่อเชื่อม Supabase แล้ว"}
           </button>
-        </div>
+        </section>
       ) : null}
 
       <button
         type="button"
         onClick={propose}
         disabled={blocked}
-        className="w-full rounded-2xl bg-primary p-3.5 font-display text-[15px] font-semibold text-white shadow-[0_8px_20px_rgba(255,106,69,.35)] active:translate-y-px disabled:bg-muted disabled:shadow-none"
+        className="min-h-[52px] rounded-[16px] bg-accent-fill text-[15px] font-bold text-on-accent transition-colors hover:bg-accent-fill-hover disabled:bg-chip disabled:text-faint"
       >
         {noFreeCourt
           ? "ทุกคอร์ทกำลังเล่นอยู่"
@@ -191,14 +180,16 @@ function SwapControl({
   const [inId, setInId] = useState(benched[0]?.playerId ?? "");
 
   const name = (id: string) => byId.get(id)?.displayName ?? id;
+  const selectClass =
+    "min-h-10 min-w-0 flex-1 rounded-[10px] border border-line-strong bg-surface px-2 text-[11.5px] text-ink";
 
   return (
-    <div className="mt-2.5 flex items-center gap-1.5 text-[11.5px]">
+    <div className="flex items-center gap-1.5">
       <select
         value={outId}
         onChange={(e) => setOutId(e.target.value)}
         aria-label="ผู้เล่นที่จะเอาออก"
-        className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1.5"
+        className={selectClass}
       >
         {proposal.playerIds.map((id) => (
           <option key={id} value={id}>
@@ -207,13 +198,15 @@ function SwapControl({
         ))}
       </select>
 
-      <span className="text-muted">↔</span>
+      <span className="text-faint" aria-hidden>
+        ↔
+      </span>
 
       <select
         value={inId}
         onChange={(e) => setInId(e.target.value)}
         aria-label="ผู้เล่นที่จะใส่เข้าไป"
-        className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-2 py-1.5"
+        className={selectClass}
       >
         {benched.map((e) => (
           <option key={e.playerId} value={e.playerId}>
@@ -225,7 +218,7 @@ function SwapControl({
       <button
         type="button"
         onClick={() => onSwap(outId, inId)}
-        className="shrink-0 rounded-lg bg-chip px-2.5 py-1.5 font-semibold text-navy"
+        className="min-h-10 shrink-0 rounded-[10px] bg-chip px-3 text-[11.5px] font-semibold text-ink"
       >
         สลับ
       </button>

@@ -23,10 +23,10 @@ export function LiffStatusNote() {
 
   return (
     <p
-      className={`mb-2 rounded-xl px-3 py-2.5 text-[11px] leading-relaxed ${
+      className={`rounded-[14px] px-3 py-2.5 text-[11px] leading-relaxed ${
         status === "error"
-          ? "bg-pending-bg text-pending"
-          : "bg-chip text-muted"
+          ? "border border-warn-line bg-warn-bg text-warn"
+          : "bg-inset text-muted"
       }`}
     >
       {body}

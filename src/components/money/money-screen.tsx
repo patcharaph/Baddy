@@ -1,73 +1,119 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
 
-import { SourceNote } from "@/components/source-note";
-import { TopBar } from "@/components/top-bar";
-import { Avatar, SectionTitle } from "@/components/ui";
+import {
+  Avatar,
+  Figure,
+  Notice,
+  primaryButton,
+  ScreenTitle,
+  SectionHeading,
+} from "@/components/ui";
 import { setPaid, setSplitMode } from "@/lib/data/mutations";
-import type { SourceKind } from "@/lib/data/source";
 import type { PlayerView } from "@/lib/data/types";
 import {
   collectedTotal,
-  computeCostShares,
+  tryComputeCostShares,
   type CostInput,
   type CostResult,
 } from "@/lib/domain/cost-engine";
-import { baht, formatBaht } from "@/lib/domain/money";
+import { baht } from "@/lib/domain/money";
 import { SPLIT_MODE_LABELS, type SplitMode } from "@/lib/domain/types";
 
 const MODES: SplitMode[] = ["buffet", "per_game", "even"];
 
-function hintFor(mode: SplitMode, input: CostInput): string {
-  const shuttles = (input.shuttleLogs ?? []).reduce((n, l) => n + l.count, 0);
-  const unitPrice = input.shuttleLogs?.[0]?.unitPrice ?? 0;
-
+/**
+ * The sentence under the mode tabs.
+ *
+ * Every mode is somebody's idea of fair, so the note says which trade the mode
+ * is making rather than just naming it — that is the argument the organizer is
+ * about to have with the group chat, pre-answered.
+ */
+function noteFor(mode: SplitMode, input: CostInput, shuttles: number): string {
   switch (mode) {
     case "buffet":
-      return `เรตเดียวจบ ค่าลูกรวมในเรตแล้ว (ช ${input.buffetRate ?? "—"} · ญ ${
-        input.womenRate ?? input.buffetRate ?? "—"
-      }) — นิยมสุด ตั้งค่าน้อยสุด`;
+      return "เรตเดียวต่อคน ค่าลูกรวมในเรตแล้ว — โหมดที่ก๊วนใช้มากสุดและตั้งค่าเร็วสุด";
     case "per_game":
-      return `ค่าลูก = จำนวนเกม × ${baht(
-        input.perGameRate ?? 0,
-      )} + ค่าสนามหาร · ลูกที่เกินโควตาแชร์ใน 4 คนของแมตช์`;
+      return `ค่าลูกคิดตามจำนวนเกมที่ลงจริง (นับจาก queue engine) + ค่าสนามหารเท่ากัน · กฎ ${
+        input.shuttlesIncludedPerMatch ?? 1
+      } เกม = 1 ลูก ลูกเกินหารใน 4 คนของแมตช์`;
     case "even":
-      return `ค่าลูกจริง ${shuttles} ลูก × ${baht(
-        unitPrice,
-      )} + ค่าสนาม แล้วหารเท่ากันทุกคน`;
+      return `หารเท่ากันตอนเลิก: ค่าลูกที่ใช้จริง ${shuttles} ลูก รวมค่าสนาม ÷ จำนวนคน (เศษกระจายให้คนแรก ๆ คนละ 1 บาท)`;
   }
 }
 
+/** The two figures that explain where the grand total came from, per mode. */
+function figuresFor(
+  mode: SplitMode,
+  input: CostInput,
+  result: CostResult,
+  shuttles: number,
+): [{ label: string; value: string }, { label: string; value: string }] {
+  const heads = result.shares.length;
+
+  switch (mode) {
+    case "buffet":
+      return [
+        {
+          label: "เรตต่อคน (ช/ญ)",
+          value: `${input.buffetRate ?? "—"} / ${
+            input.womenRate ?? input.buffetRate ?? "—"
+          } ฿`,
+        },
+        { label: "คนที่ร่วมรอบนี้", value: `${heads} คน` },
+      ];
+    case "per_game":
+      return [
+        { label: `ค่าสนาม (หาร ${heads} คน)`, value: baht(result.courtTotal) },
+        { label: "ค่าลูกตามเกมที่ลง", value: baht(result.shuttleTotal) },
+      ];
+    case "even":
+      return [
+        { label: "ค่าสนาม", value: baht(result.courtTotal) },
+        { label: `ค่าลูก ${shuttles} ลูก`, value: baht(result.shuttleTotal) },
+      ];
+  }
+}
+
+/**
+ * Cost split (PRD FR-7, US-4.2).
+ *
+ * Every total on this screen is recomputed from source on each render — the mode
+ * is a setting, not a stored answer — so switching modes can never leave a stale
+ * number behind. And every row carries the sentence that explains it, because a
+ * player who cannot check the number is a player arguing in the group chat.
+ */
 export function MoneyScreen({
-  kind,
   sessionId,
   input,
   players,
   paidPlayerIds,
+  canEdit,
+  meId,
 }: {
-  kind: SourceKind;
+  /** Null on sample data, where there is nothing to write to. */
   sessionId: string | null;
   input: CostInput;
   players: PlayerView[];
   paidPlayerIds: string[];
+  canEdit: boolean;
+  meId: string | null;
 }) {
   const [mode, setMode] = useState<SplitMode>(input.splitMode);
   const [paid, setPaidIds] = useState<string[]>(paidPlayerIds);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
-  const live = kind === "live" && sessionId !== null;
+  const live = sessionId !== null;
   const byId = new Map(players.map((p) => [p.id, p]));
+  const shuttles = (input.shuttleLogs ?? []).reduce((n, l) => n + l.count, 0);
 
-  // Recomputed from source on every mode change — no stored totals to go stale.
-  const result: CostResult | { error: string } = useMemo(() => {
-    try {
-      return computeCostShares({ ...input, splitMode: mode });
-    } catch (e) {
-      return { error: e instanceof Error ? e.message : String(e) };
-    }
-  }, [input, mode]);
+  const computed = useMemo(
+    () => tryComputeCostShares({ ...input, splitMode: mode }),
+    [input, mode],
+  );
 
   /**
    * Switching mode updates the screen immediately and persists in the
@@ -112,137 +158,16 @@ export function MoneyScreen({
     });
   };
 
-  if ("error" in result) {
-    return (
-      <>
-        <TopBar left="💰 สรุปเงิน" />
-        <main className="px-4 pt-4">
-          <SourceNote kind={kind} />
-          <ModeTabs mode={mode} onChange={changeMode} />
-          <p className="rounded-xl bg-pending-bg px-3 py-3 text-[12px] leading-relaxed text-pending">
-            {result.error}
-          </p>
-        </main>
-      </>
-    );
-  }
+  const title = canEdit ? "หารเงิน" : "ยอดของฉัน";
+  const subtitle = canEdit
+    ? "เลือกวิธีหารของรอบนี้ — ผู้เล่นกดดูที่มาของยอดได้ทุกคน"
+    : "หัวหน้าก๊วนเลือกวิธีหารไว้แล้ว — คุณตรวจที่มาของยอดได้ทุกบรรทัด";
 
-  const collected = collectedTotal(result, paid);
-
-  return (
-    <>
-      <TopBar
-        left={
-          <>
-            💰 สรุปเงิน
-            <span className="mx-1.5 opacity-50">·</span>
-            {result.shares.length} คน
-          </>
-        }
-      />
-
-      <main className="px-4 pt-4">
-        <SourceNote kind={kind} />
-
-        {error ? (
-          <p className="mb-3 rounded-xl bg-pending-bg px-3 py-2 text-[11.5px] text-pending">
-            {error}
-          </p>
-        ) : null}
-
-        <SectionTitle>วิธีหารเงิน</SectionTitle>
-        <ModeTabs mode={mode} onChange={changeMode} />
-
-        <p className="mx-0.5 mb-3 text-[11.5px] leading-relaxed text-muted">
-          {hintFor(mode, input)}
-        </p>
-
-        <section className="mb-2 rounded-2xl bg-[linear-gradient(135deg,#1B2547,#31407A)] px-4 py-[15px] text-white">
-          <div className="text-xs opacity-75">ยอดรวมทั้งรอบ</div>
-          <div className="mt-0.5 font-mono text-3xl font-semibold tabular-nums">
-            ฿{formatBaht(result.grandTotal)}
-          </div>
-          <div className="mt-[11px] flex gap-4 border-t border-white/16 pt-[11px] text-xs">
-            <Figure label="ค่าสนาม" value={result.courtTotal} />
-            <Figure label="ค่าลูก" value={result.shuttleTotal} />
-            <Figure label="เก็บแล้ว" value={collected} />
-          </div>
-        </section>
-
-        <div className="mt-3.5">
-          <SectionTitle note={`${result.shares.length} คน`}>ยอดรายคน</SectionTitle>
-        </div>
-
-        <ul>
-          {result.shares.map((share) => {
-            const player = byId.get(share.playerId);
-            const isPaid = paid.includes(share.playerId);
-
-            return (
-              <li
-                key={share.playerId}
-                className="mb-2 flex items-center gap-[11px] rounded-[13px] border border-line bg-surface px-3 py-[11px]"
-              >
-                <Avatar
-                  name={share.displayName}
-                  color={player?.color ?? "#5B6BB0"}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[13.5px] font-medium">
-                    {share.displayName}
-                  </div>
-                  {/* The transparency requirement: every total says where it came from. */}
-                  <div className="mt-0.5 text-[11px] text-muted">
-                    {share.breakdown}
-                  </div>
-                </div>
-                <div className="text-right font-mono text-[15px] font-semibold tabular-nums">
-                  {baht(share.total)}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => togglePaid(share.playerId)}
-                  aria-pressed={isPaid}
-                  className={`ml-0.5 shrink-0 rounded-lg px-2.5 py-[5px] text-[11px] font-semibold whitespace-nowrap ${
-                    isPaid ? "bg-paid-bg text-paid" : "bg-pending-bg text-pending"
-                  }`}
-                >
-                  {isPaid ? "จ่ายแล้ว ✓" : "ค้าง"}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-
-        <section className="mt-1.5 rounded-2xl border border-dashed border-line bg-surface p-4 text-center">
-          <div
-            className="mx-auto my-2 flex h-[120px] w-[120px] items-center justify-center rounded-xl bg-chip text-[11px] text-muted"
-            role="img"
-            aria-label="ตัวอย่างตำแหน่ง QR พร้อมเพย์"
-          >
-            QR พร้อมเพย์
-          </div>
-          <div className="text-[11px] text-muted">
-            สแกนโอนแล้วกด “จ่ายแล้ว” ได้เลย
-          </div>
-        </section>
-      </main>
-    </>
-  );
-}
-
-function ModeTabs({
-  mode,
-  onChange,
-}: {
-  mode: SplitMode;
-  onChange: (mode: SplitMode) => void;
-}) {
-  return (
+  const modeControl = canEdit ? (
     <div
       role="tablist"
       aria-label="วิธีหารเงิน"
-      className="mb-3.5 flex gap-1.5 rounded-xl bg-chip p-1"
+      className="flex gap-1.5 rounded-[14px] bg-inset p-1"
     >
       {MODES.map((m) => (
         <button
@@ -250,25 +175,145 @@ function ModeTabs({
           type="button"
           role="tab"
           aria-selected={mode === m}
-          onClick={() => onChange(m)}
-          className={`flex-1 rounded-[9px] px-1 py-2 text-[11.5px] ${
-            mode === m
-              ? "bg-surface font-semibold text-ink shadow-[0_1px_3px_rgba(23,33,62,.12)]"
-              : "font-medium text-muted"
+          onClick={() => changeMode(m)}
+          className={`min-h-[42px] flex-1 rounded-[11px] text-[12.5px] font-semibold transition-colors ${
+            mode === m ? "bg-accent-fill text-on-accent" : "bg-transparent text-muted"
           }`}
         >
           {SPLIT_MODE_LABELS[m]}
         </button>
       ))}
     </div>
-  );
-}
-
-function Figure({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="opacity-90">
-      {label}{" "}
-      <b className="font-mono font-semibold tabular-nums">{formatBaht(value)}</b>
+  ) : (
+    <div className="flex items-center gap-2.5 rounded-[14px] border border-line-soft bg-inset px-3.5 py-3">
+      <span className="text-[11.5px] text-muted">วิธีหารรอบนี้</span>
+      <span className="rounded-lg bg-accent-soft px-2.5 py-1 text-xs font-semibold text-accent">
+        {SPLIT_MODE_LABELS[mode]}
+      </span>
+      <span className="flex-1" />
+      <span className="font-mono text-[10.5px] text-ghost">READ ONLY</span>
     </div>
+  );
+
+  if (!computed.ok) {
+    return (
+      <main className="flex flex-col gap-3.5 px-4 pt-[18px] pb-2">
+        <ScreenTitle title={title} subtitle={subtitle} />
+        {modeControl}
+        <Notice>{computed.error}</Notice>
+      </main>
+    );
+  }
+
+  const result = computed.result;
+  const [figureA, figureB] = figuresFor(mode, input, result, shuttles);
+  const paidCount = result.shares.filter((s) => paid.includes(s.playerId)).length;
+  const collected = collectedTotal(result, paid);
+
+  return (
+    <main className="flex flex-col gap-3.5 px-4 pt-[18px] pb-2">
+      <ScreenTitle title={title} subtitle={subtitle} />
+
+      {modeControl}
+      {error ? <Notice>{error}</Notice> : null}
+
+      <section className="flex flex-col gap-3 rounded-[18px] border border-line bg-surface p-4 shadow-card">
+        <p className="text-xs leading-relaxed text-muted text-pretty">
+          {noteFor(mode, input, shuttles)}
+          {canEdit
+            ? ""
+            : " · หัวหน้าก๊วนเลือกวิธีนี้ไว้ — คุณดูที่มาของยอดได้อย่างเดียว"}
+        </p>
+
+        <div className="grid grid-cols-2 gap-2.5">
+          <Figure label={figureA.label} value={figureA.value} />
+          <Figure label={figureB.label} value={figureB.value} />
+        </div>
+
+        <div className="flex items-baseline justify-between border-t border-dashed border-line pt-3">
+          <span className="text-[13.5px] font-semibold">รวมทั้งรอบ</span>
+          <span className="font-mono text-[22px] font-bold text-accent">
+            {baht(result.grandTotal)}
+          </span>
+        </div>
+
+        <div className="flex items-baseline justify-between text-[11.5px] text-muted">
+          <span>เก็บแล้ว</span>
+          <span className="font-mono text-ink">{baht(collected)}</span>
+        </div>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <SectionHeading note={`${paidCount}/${result.shares.length} จ่ายแล้ว`}>
+          ยอดต่อคน
+        </SectionHeading>
+
+        <ul className="flex flex-col gap-2">
+          {result.shares.map((share) => {
+            const player = byId.get(share.playerId);
+            const isPaid = paid.includes(share.playerId);
+            const isMe = share.playerId === meId;
+
+            return (
+              <li
+                key={share.playerId}
+                className={`flex min-h-[58px] items-center gap-2.5 rounded-[16px] border px-3 py-2.5 ${
+                  isMe
+                    ? "border-accent-line bg-accent-tint"
+                    : "border-line-soft bg-inset-soft"
+                }`}
+              >
+                <Avatar name={share.displayName} active={isPaid || isMe} />
+
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-[13.5px] font-medium">
+                    {share.displayName}
+                    {isMe ? <span className="text-muted"> (คุณ)</span> : null}
+                    {player?.skillLevel ? (
+                      <span className="text-ghost"> · {player.skillLevel}</span>
+                    ) : null}
+                  </span>
+                  {/* The transparency requirement: every total says where it came from. */}
+                  <span className="truncate font-mono text-[10.5px] text-faint">
+                    {share.breakdown}
+                  </span>
+                </span>
+
+                <span className="shrink-0 font-mono text-[15px] font-bold">
+                  {baht(share.total)}
+                </span>
+
+                {canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => togglePaid(share.playerId)}
+                    aria-pressed={isPaid}
+                    className={`min-h-9 min-w-[72px] shrink-0 rounded-[11px] px-2.5 text-[11px] font-semibold transition-[filter] hover:brightness-110 ${
+                      isPaid
+                        ? "border-none bg-accent-soft text-accent"
+                        : "border border-line-strong bg-transparent text-muted"
+                    }`}
+                  >
+                    {isPaid ? "จ่ายแล้ว" : "ยังไม่จ่าย"}
+                  </button>
+                ) : (
+                  <span
+                    className={`w-[66px] shrink-0 text-right text-[11px] font-medium ${
+                      isPaid ? "text-accent" : "text-faint"
+                    }`}
+                  >
+                    {isPaid ? "จ่ายแล้ว" : "ยังไม่จ่าย"}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </section>
+
+      <Link href="/settle" className={`${primaryButton} mt-1 min-h-[52px]`}>
+        {canEdit ? "เปิด QR เคลียร์เงิน" : "เปิด QR จ่ายเงิน"}
+      </Link>
+    </main>
   );
 }

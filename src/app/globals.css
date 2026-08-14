@@ -1,43 +1,258 @@
 @import "tailwindcss";
 
 /*
- * Design tokens ported from docs/line-guan-badminton-ui-mockup.html
- * Keep these names in sync with the mockup so a design change has one source.
+ * Design tokens ported from the LIFF prototype in
+ * "docs/Mobile app design planning.zip" (Guan Badminton LIFF.dc.html).
+ *
+ * Two themes, one set of names. Every colour a screen can reach for is one of
+ * the semantic tokens below — nothing in the app names a raw colour or an alpha
+ * of white, because a `text-white/45` is only "secondary text" in one of the two
+ * themes and becomes invisible in the other.
+ *
+ * The lime is the one accent, and it splits in two here: `accent-fill` is the
+ * brand lime used as a *background* (it survives both themes with near-black
+ * text on it), while `accent` is the lime used as *text* and has to darken to
+ * a readable olive on a light background.
  */
-@theme {
-  --color-screen: #f5f6fb;
-  --color-surface: #ffffff;
-  --color-ink: #17213e;
-  --color-muted: #6c7690;
-  --color-line: #e7eaf2;
-  --color-primary: #ff6a45;
-  --color-primary-ink: #c8462a;
-  --color-court: #12908a;
-  --color-court-bg: #e4f3f1;
-  --color-pending: #e39a2b;
-  --color-pending-bg: #fcf1de;
-  --color-paid: #12908a;
-  --color-paid-bg: #e4f3f1;
-  --color-chip: #eef1f8;
-  --color-navy: #1b2547;
-  --color-me-bg: #fff3ef;
 
-  --font-display: var(--font-anuphan), ui-sans-serif, system-ui, sans-serif;
+/* -------------------------------------------------------------------------
+ * Palette values.
+ *
+ * The dark set is stored under `--d-*` so the two blocks that switch into dark
+ * mode (system preference, and the explicit toggle) can assign the same list
+ * without either one holding the only copy of a value.
+ * ------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Dark palette — assigned, not used, from here. */
+  --d-app: #08090b;
+  --d-screen: #0b0c0e;
+  --d-surface: #12151a;
+  --d-raised: #171a1e;
+  --d-inset: rgba(255, 255, 255, 0.05);
+  --d-inset-soft: rgba(255, 255, 255, 0.035);
+  --d-chip: rgba(255, 255, 255, 0.08);
+  --d-line: rgba(255, 255, 255, 0.09);
+  --d-line-soft: rgba(255, 255, 255, 0.06);
+  --d-line-strong: rgba(255, 255, 255, 0.16);
+  --d-ink: #ffffff;
+  --d-muted: rgba(255, 255, 255, 0.5);
+  --d-faint: rgba(255, 255, 255, 0.36);
+  --d-ghost: rgba(255, 255, 255, 0.25);
+  --d-accent: #c8ff3d;
+  --d-accent-tint: rgba(200, 255, 61, 0.09);
+  --d-accent-soft: rgba(200, 255, 61, 0.16);
+  --d-accent-soft-hover: rgba(200, 255, 61, 0.26);
+  --d-accent-line: rgba(200, 255, 61, 0.28);
+  --d-accent-fill: #c8ff3d;
+  --d-accent-fill-hover: #d9ff6e;
+  --d-on-accent: #0b0c0e;
+  --d-accent-glow: rgba(200, 255, 61, 0.12);
+  --d-court-line: rgba(255, 255, 255, 0.03);
+  --d-warn: #f0b24a;
+  --d-warn-bg: rgba(240, 178, 74, 0.1);
+  --d-warn-line: rgba(240, 178, 74, 0.3);
+  --d-card-shadow: 0 0 #0000;
+
+  /* Light palette — the default, and the live assignment. */
+  --app: #e7eae0;
+  --screen: #f4f6f0;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --inset: #f1f4ea;
+  --inset-soft: #ffffff;
+  --chip: #eaeee0;
+  --line: #dee3d3;
+  --line-soft: #e9ecdf;
+  --line-strong: #c3cab4;
+  --ink: #16180f;
+  --muted: #565c4b;
+  --faint: #6b7160;
+  --ghost: #9aa08c;
+  --accent: #4a6f0c;
+  --accent-tint: #f2fbdd;
+  --accent-soft: #eaf9c9;
+  --accent-soft-hover: #ddf2ac;
+  --accent-line: #c3e388;
+  --accent-fill: #c8ff3d;
+  --accent-fill-hover: #b8f21e;
+  --on-accent: #16180f;
+  --accent-glow: rgba(170, 225, 40, 0.22);
+  --court-line: rgba(22, 24, 15, 0.05);
+  --warn: #8a5a00;
+  --warn-bg: #fdf3dd;
+  --warn-line: #ecd39a;
+  --card-shadow:
+    0 1px 2px rgba(22, 24, 15, 0.05), 0 1px 8px rgba(22, 24, 15, 0.04);
+}
+
+/*
+ * Switching into dark.
+ *
+ * Two blocks assigning the same list: the media query is what an untouched
+ * install gets, and the attribute is what the in-app toggle sets. The media
+ * query excludes `data-theme="light"` so choosing light explicitly wins over
+ * a dark OS, and the attribute rule comes last so choosing dark wins over a
+ * light OS. Keep the two assignment lists identical.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --app: var(--d-app);
+    --screen: var(--d-screen);
+    --surface: var(--d-surface);
+    --raised: var(--d-raised);
+    --inset: var(--d-inset);
+    --inset-soft: var(--d-inset-soft);
+    --chip: var(--d-chip);
+    --line: var(--d-line);
+    --line-soft: var(--d-line-soft);
+    --line-strong: var(--d-line-strong);
+    --ink: var(--d-ink);
+    --muted: var(--d-muted);
+    --faint: var(--d-faint);
+    --ghost: var(--d-ghost);
+    --accent: var(--d-accent);
+    --accent-tint: var(--d-accent-tint);
+    --accent-soft: var(--d-accent-soft);
+    --accent-soft-hover: var(--d-accent-soft-hover);
+    --accent-line: var(--d-accent-line);
+    --accent-fill: var(--d-accent-fill);
+    --accent-fill-hover: var(--d-accent-fill-hover);
+    --on-accent: var(--d-on-accent);
+    --accent-glow: var(--d-accent-glow);
+    --court-line: var(--d-court-line);
+    --warn: var(--d-warn);
+    --warn-bg: var(--d-warn-bg);
+    --warn-line: var(--d-warn-line);
+    --card-shadow: var(--d-card-shadow);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --app: var(--d-app);
+  --screen: var(--d-screen);
+  --surface: var(--d-surface);
+  --raised: var(--d-raised);
+  --inset: var(--d-inset);
+  --inset-soft: var(--d-inset-soft);
+  --chip: var(--d-chip);
+  --line: var(--d-line);
+  --line-soft: var(--d-line-soft);
+  --line-strong: var(--d-line-strong);
+  --ink: var(--d-ink);
+  --muted: var(--d-muted);
+  --faint: var(--d-faint);
+  --ghost: var(--d-ghost);
+  --accent: var(--d-accent);
+  --accent-tint: var(--d-accent-tint);
+  --accent-soft: var(--d-accent-soft);
+  --accent-soft-hover: var(--d-accent-soft-hover);
+  --accent-line: var(--d-accent-line);
+  --accent-fill: var(--d-accent-fill);
+  --accent-fill-hover: var(--d-accent-fill-hover);
+  --on-accent: var(--d-on-accent);
+  --accent-glow: var(--d-accent-glow);
+  --court-line: var(--d-court-line);
+  --warn: var(--d-warn);
+  --warn-bg: var(--d-warn-bg);
+  --warn-line: var(--d-warn-line);
+  --card-shadow: var(--d-card-shadow);
+}
+
+/*
+ * `inline` so the utilities compile to the palette variable itself rather than
+ * to a copy of it taken at `:root`. Without it, a token redefined further down
+ * the tree would never reach the utility that uses it.
+ */
+@theme inline {
+  --color-app: var(--app);
+  --color-screen: var(--screen);
+  --color-surface: var(--surface);
+  --color-raised: var(--raised);
+  --color-inset: var(--inset);
+  --color-inset-soft: var(--inset-soft);
+  --color-chip: var(--chip);
+
+  --color-line: var(--line);
+  --color-line-soft: var(--line-soft);
+  --color-line-strong: var(--line-strong);
+
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-ghost: var(--ghost);
+
+  --color-accent: var(--accent);
+  --color-accent-tint: var(--accent-tint);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-hover: var(--accent-soft-hover);
+  --color-accent-line: var(--accent-line);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-fill-hover: var(--accent-fill-hover);
+  --color-on-accent: var(--on-accent);
+
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-line: var(--warn-line);
+
+  --shadow-card: var(--card-shadow);
+}
+
+@theme {
   --font-sans: var(--font-plex-thai), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  --animate-pulse-dot: pulse-dot 1.6s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/** The lime wash at the top of a card that is about *you*, or about right now. */
+@utility accent-glow {
+  background-image: radial-gradient(
+    120% 100% at 50% 0%,
+    var(--color-accent-glow),
+    transparent 70%
+  );
+}
+
+/** The faint vertical ruling that makes a court read as a court. */
+@utility court-lines {
+  background-image: repeating-linear-gradient(
+    90deg,
+    var(--color-court-line) 0 1px,
+    transparent 1px 22px
+  );
 }
 
 @layer base {
-  /* LIFF renders inside LINE's webview — the mockup is light-only by design. */
   html {
-    color-scheme: light;
     -webkit-text-size-adjust: 100%;
   }
 
   body {
-    background: var(--color-screen);
+    background: var(--color-app);
     color: var(--color-ink);
     font-family: var(--font-sans);
     overscroll-behavior-y: none;
+  }
+
+  /* Money and queue positions are read at a glance and compared down a column,
+     so digits must not change width as they change value. */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
   }
 }

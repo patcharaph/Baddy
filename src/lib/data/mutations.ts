@@ -10,11 +10,22 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 
+import { PREVIEW_ROLE_COOKIE } from "@/lib/data/viewer";
+import type { MemberRole } from "@/lib/domain/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
+import { THEME_COOKIE, type ThemePreference } from "@/lib/theme";
 
 function fail(what: string, message: string): never {
   throw new Error(`${what}ไม่สำเร็จ: ${message}`);
+}
+
+/** Every screen reads from the same session, so a write invalidates all of them. */
+function revalidateSession(): void {
+  for (const path of ["/", "/checkin", "/queue", "/shuttle", "/money", "/settle"]) {
+    revalidatePath(path);
+  }
 }
 
 /**
@@ -72,7 +83,7 @@ export async function startMatch(
 
   if (startError) fail("เริ่มแมตช์", startError.message);
 
-  revalidatePath("/queue");
+  revalidateSession();
   return { matchId: match.id };
 }
 
@@ -87,8 +98,7 @@ export async function endMatch(matchId: string): Promise<void> {
 
   if (error) fail("จบแมตช์", error.message);
 
-  revalidatePath("/queue");
-  revalidatePath("/money");
+  revalidateSession();
 }
 
 /**
@@ -116,7 +126,38 @@ export async function logShuttle(
 
   if (error) fail("บันทึกลูก", error.message);
 
-  revalidatePath("/money");
+  revalidateSession();
+}
+
+/**
+ * Undo the most recent `+1`.
+ *
+ * Deletes rather than marking void: a mis-tap is not history worth keeping, and
+ * an organizer who has to explain a phantom shuttle at settle-up has lost more
+ * than the audit trail was worth.
+ */
+export async function undoLastShuttle(sessionId: string): Promise<void> {
+  const supabase = await getSupabaseServerClient();
+
+  const { data: last, error: readError } = await supabase
+    .from("shuttle_logs")
+    .select("id")
+    .eq("session_id", sessionId)
+    .order("logged_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (readError) fail("ย้อนกลับการบันทึกลูก", readError.message);
+  if (!last) fail("ย้อนกลับการบันทึกลูก", "รอบนี้ยังไม่มีการบันทึกลูก");
+
+  const { error } = await supabase
+    .from("shuttle_logs")
+    .delete()
+    .eq("id", last.id);
+
+  if (error) fail("ย้อนกลับการบันทึกลูก", error.message);
+
+  revalidateSession();
 }
 
 /** Tick a player as paid, or untick them (FR-8). */
@@ -136,6 +177,7 @@ export async function setPaid(
   if (error) fail("บันทึกสถานะการจ่าย", error.message);
 
   revalidatePath("/money");
+  revalidatePath("/settle");
 }
 
 /** Change how this session splits its costs (US-4.2). */
@@ -153,4 +195,100 @@ export async function setSplitMode(
   if (error) fail("เปลี่ยนวิธีหารเงิน", error.message);
 
   revalidatePath("/money");
+  revalidatePath("/settle");
+}
+
+/**
+ * Check a player in, or take them back out (FR-3).
+ *
+ * Taking someone out is two different things depending on whether they ever
+ * arrived: someone who has played goes to `checked_out` and keeps their share of
+ * the bill, while someone who never showed goes back to `rsvp`. Collapsing those
+ * two into one status is how a player who went home early stops being billed.
+ */
+export async function setCheckIn(
+  sessionId: string,
+  playerId: string,
+  present: boolean,
+): Promise<void> {
+  const supabase = await getSupabaseServerClient();
+
+  const { data: current, error: readError } = await supabase
+    .from("session_participants")
+    .select("check_in_at")
+    .eq("session_id", sessionId)
+    .eq("player_id", playerId)
+    .maybeSingle();
+
+  if (readError) fail("เช็คอิน", readError.message);
+  if (!current) fail("เช็คอิน", "ไม่พบผู้เล่นคนนี้ในรอบเล่นนี้");
+
+  const now = new Date().toISOString();
+  const patch = present
+    ? {
+        status: "checked_in" as const,
+        // Keep the original arrival time: it is what the queue's wait ordering
+        // is measured from, and re-checking in must not send someone to the back.
+        check_in_at: current.check_in_at ?? now,
+        check_out_at: null,
+        waitlist_position: null,
+      }
+    : current.check_in_at
+      ? { status: "checked_out" as const, check_out_at: now }
+      : { status: "rsvp" as const, check_in_at: null, check_out_at: null };
+
+  const { error } = await supabase
+    .from("session_participants")
+    .update(patch)
+    .eq("session_id", sessionId)
+    .eq("player_id", playerId);
+
+  if (error) fail("เช็คอิน", error.message);
+
+  revalidateSession();
+}
+
+/**
+ * Switch the sample board between the organizer's and the player's view.
+ *
+ * Sample data has no memberships to read, and both halves of the design need to
+ * be reviewable, so the preview role lives in a cookie. It is only ever read
+ * when Supabase is not configured — see `resolveViewer`.
+ */
+export async function setPreviewRole(role: MemberRole): Promise<void> {
+  const store = await cookies();
+  store.set(PREVIEW_ROLE_COOKIE, role, {
+    path: "/",
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 30,
+  });
+
+  revalidateSession();
+  revalidatePath("/profile");
+}
+
+/**
+ * Store the reader's light/dark choice (or hand it back to the OS).
+ *
+ * A cookie rather than localStorage, because `<html data-theme>` is written by
+ * the server — see `lib/theme.ts`. `revalidatePath("/", "layout")` is what makes
+ * the root layout re-render with the new attribute; revalidating the individual
+ * pages would leave the old `<html>` in place.
+ */
+export async function setTheme(preference: ThemePreference): Promise<void> {
+  const store = await cookies();
+
+  if (preference === "system") {
+    // Delete rather than store "system": an absent cookie is exactly the state
+    // the CSS reads as "follow prefers-color-scheme".
+    store.delete(THEME_COOKIE);
+  } else {
+    store.set(THEME_COOKIE, preference, {
+      path: "/",
+      sameSite: "lax",
+      maxAge: 60 * 60 * 24 * 365,
+    });
+  }
+
+  revalidatePath("/", "layout");
 }

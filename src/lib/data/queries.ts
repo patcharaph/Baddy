@@ -21,7 +21,9 @@ import {
   toPlayerView,
   toQueueCandidates,
   toQueueEntries,
+  toRoster,
   toShuttleLogs,
+  toShuttleSummary,
   toWaitlist,
 } from "./mappers";
 import type {
@@ -174,7 +176,7 @@ async function fetchShuttleLogs(
 ): Promise<ShuttleLogRow[]> {
   const result = await supabase
     .from("shuttle_logs")
-    .select("match_id, count, unit_price")
+    .select("id, match_id, court_no, logged_at, count, unit_price")
     .eq("session_id", sessionId);
 
   return unwrap(result, "บันทึกลูกแบด") as ShuttleLogRow[];
@@ -191,9 +193,10 @@ export async function fetchBoard(
   session: SessionView,
   now: number,
 ): Promise<BoardView> {
-  const [participants, matches] = await Promise.all([
+  const [participants, matches, logs] = await Promise.all([
     fetchParticipants(supabase, session.id),
     fetchMatches(supabase, session.id),
+    fetchShuttleLogs(supabase, session.id),
   ]);
 
   const players = participants
@@ -206,9 +209,52 @@ export async function fetchBoard(
     courts: toLiveCourts(matches),
     queue: toQueueEntries(toQueueCandidates(participants, matches), now),
     waitlist: toWaitlist(participants),
+    roster: toRoster(participants),
     checkedInCount: countCheckedIn(participants),
     freeCourts: toFreeCourts(session.courtCount, matches),
+    shuttles: toShuttleSummary(logs, matches),
   };
+}
+
+export interface GuanMembershipView {
+  guanId: string;
+  name: string;
+  homeVenue: string | null;
+  role: "organizer" | "player";
+}
+
+/**
+ * The guans a player belongs to (PRD FR-9).
+ *
+ * The profile is the player's, not the guan's — it is the seed of the Phase 2
+ * player network — so this is the one read that deliberately crosses the tenant
+ * boundary the rest of the app stays inside.
+ */
+export async function fetchMyGuans(
+  supabase: Client,
+  playerId: string,
+): Promise<GuanMembershipView[]> {
+  const { data, error } = await supabase
+    .from("memberships")
+    .select("guan_id, role, guans ( name, home_venue )")
+    .eq("player_id", playerId);
+
+  if (error) {
+    throw new Error(`โหลดก๊วนของฉันไม่สำเร็จ: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as unknown as {
+    guan_id: string;
+    role: "organizer" | "player";
+    guans: { name: string; home_venue: string | null } | null;
+  }[];
+
+  return rows.map((r) => ({
+    guanId: r.guan_id,
+    name: r.guans?.name ?? "ก๊วน",
+    homeVenue: r.guans?.home_venue ?? null,
+    role: r.role,
+  }));
 }
 
 export interface SessionCostData {
