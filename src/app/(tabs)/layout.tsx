@@ -1,5 +1,6 @@
 import { AppHeader } from "@/components/app-header";
 import { PreviewBar } from "@/components/preview-bar";
+import { SignInBar } from "@/components/sign-in-bar";
 import { TabBar } from "@/components/tab-bar";
 import { loadBoard } from "@/lib/data/source";
 import { sessionSubtitle } from "@/lib/format/datetime";
@@ -29,6 +30,11 @@ export default async function TabsLayout({ children }: LayoutProps<"/">) {
           }
           isOrganizer={viewer.role === "organizer"}
         />
+
+        {/* Renders itself away inside LINE and whenever a session exists — see
+            SignInBar. It sits above the preview bar because "you are signed out"
+            outranks "this is sample data". */}
+        <SignInBar />
 
         {kind === "sample" && viewer.previewAs ? (
           <PreviewBar role={viewer.previewAs} />

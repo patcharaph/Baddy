@@ -41,8 +41,17 @@ export interface LiffState {
   logout: () => void;
   /** Close the LIFF window. A no-op outside LINE, where there is nothing to close. */
   close: () => void;
-  /** False in browser mode, so the header can hide a close button that would do nothing. */
+  /** False outside LINE, so the header hides a close button that would do nothing. */
   canClose: boolean;
+  /**
+   * True only inside LINE's webview.
+   *
+   * Not the same as "LIFF is configured": an organizer running the door from a
+   * laptop has a working LIFF app and is not in the client, and the two cases
+   * differ in what the shell may offer — there is no window to close and no
+   * automatic identity to assume.
+   */
+  isInClient: boolean;
 }
 
 const LiffContext = createContext<LiffState | null>(null);
@@ -63,6 +72,7 @@ export function LiffProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<LiffProfile | null>(null);
   const [idToken, setIdToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isInClient, setIsInClient] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -76,6 +86,13 @@ export function LiffProvider({ children }: { children: ReactNode }) {
         await liff.init({ liffId: publicEnv.liffId });
         if (cancelled) return;
 
+        setIsInClient(liff.isInClient());
+
+        // Outside LINE this is the normal first state, not a failure: the SDK
+        // works in an ordinary browser, but nobody has been through LINE Login
+        // yet. The shell offers the button rather than redirecting on its own —
+        // an unannounced bounce to a login screen is how a shared laptop signs
+        // the wrong person in.
         if (!liff.isLoggedIn()) {
           setStatus("logged-out");
           return;
@@ -150,20 +167,26 @@ export function LiffProvider({ children }: { children: ReactNode }) {
         void import("@line/liff").then((m) => m.default.login());
       },
       logout: () => {
-        void import("@line/liff").then((m) => {
+        void import("@line/liff").then(async (m) => {
           m.default.logout();
           setProfile(null);
           setIdToken(null);
           setStatus("logged-out");
+          // Drop the Supabase session too. Logging out of LINE while a server
+          // cookie still names you is how the next person at a shared desk
+          // inherits the last one's guan.
+          await fetch("/api/auth/line", { method: "DELETE" }).catch(() => {});
+          router.refresh();
         });
       },
       close: () => {
-        if (!hasLiffConfig) return;
+        if (!isInClient) return;
         void import("@line/liff").then((m) => m.default.closeWindow());
       },
-      canClose: hasLiffConfig,
+      canClose: isInClient,
+      isInClient,
     }),
-    [status, profile, idToken, error],
+    [status, profile, idToken, error, isInClient, router],
   );
 
   return <LiffContext.Provider value={value}>{children}</LiffContext.Provider>;
