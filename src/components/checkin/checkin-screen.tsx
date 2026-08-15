@@ -9,7 +9,7 @@ import {
   ScreenTitle,
   SectionHeading,
 } from "@/components/ui";
-import { setCheckIn } from "@/lib/data/mutations";
+import { joinSession, setCheckIn } from "@/lib/data/mutations";
 import type { ParticipantStatus } from "@/lib/domain/types";
 
 /** One roster row, already formatted — the screen never parses a timestamp. */
@@ -49,7 +49,7 @@ export function CheckinScreen(props: Props) {
     ),
   );
   const [error, setError] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+  const [joining, startTransition] = useTransition();
 
   const live = sessionId !== null;
 
@@ -71,6 +71,22 @@ export function CheckinScreen(props: Props) {
     });
   };
 
+  // Joining is a navigation-sized action, not a toggle: it creates the row the
+  // rest of this screen is about, so it waits for the server rather than
+  // pretending. A row that appears and then vanishes is worse than a spinner.
+  const join = () => {
+    setError(null);
+    if (!live) return;
+
+    startTransition(async () => {
+      try {
+        await joinSession(sessionId);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    });
+  };
+
   const inCount = roster.filter((r) => present[r.id]).length;
   const quotaText = capacity === null ? `${inCount} คน` : `${inCount}/${capacity}`;
 
@@ -80,7 +96,10 @@ export function CheckinScreen(props: Props) {
         {...props}
         present={present}
         onToggle={() => meId && toggle(meId)}
+        onJoin={join}
+        joining={joining}
         quotaText={quotaText}
+        full={capacity !== null && inCount >= capacity}
         myQueuePosition={myQueuePosition}
         error={error}
         inCount={inCount}
@@ -138,6 +157,49 @@ export function CheckinScreen(props: Props) {
   );
 }
 
+/**
+ * What a guan member sees before they are on tonight's roster.
+ *
+ * The old version of this screen was a dead end — "ทักหัวหน้าก๊วนให้เพิ่มชื่อ" —
+ * which put a chat message between a player and a session they were already
+ * entitled to join. The quota is stated up front, including when it is full,
+ * because "you are number 3 on the waitlist" is a decision someone can act on
+ * and "เข้าร่วม" followed by a surprise is not.
+ */
+function JoinCard({
+  onJoin,
+  joining,
+  quotaText,
+  full,
+}: {
+  onJoin: () => void;
+  joining: boolean;
+  quotaText: string;
+  full: boolean;
+}) {
+  return (
+    <section className="flex flex-col gap-3.5 rounded-[20px] border border-dashed border-line bg-surface p-[18px]">
+      <div className="flex flex-col gap-1">
+        <span className="text-[15px] font-semibold">ยังไม่ได้อยู่ในรอบนี้</span>
+        <span className="text-[12.5px] leading-relaxed text-muted text-pretty">
+          {full
+            ? `รอบนี้เต็มแล้ว (${quotaText}) — เข้าร่วมได้ แต่จะอยู่ใน waitlist และเลื่อนขึ้นเมื่อมีคนกลับ`
+            : `ยังมีที่ว่าง (${quotaText}) — กดเข้าร่วมได้เลย ไม่ต้องรอหัวหน้าก๊วนเพิ่มให้`}
+        </span>
+      </div>
+
+      <button
+        type="button"
+        onClick={onJoin}
+        disabled={joining}
+        className="min-h-[52px] rounded-[16px] border-none bg-accent-fill text-[15px] font-bold text-on-accent transition-[filter] hover:brightness-110 disabled:opacity-40"
+      >
+        {joining ? "กำลังเข้าร่วม…" : full ? "เข้าร่วม (waitlist)" : "เข้าร่วมรอบนี้"}
+      </button>
+    </section>
+  );
+}
+
 function rowMeta(row: RosterRow, isIn: boolean): string {
   const skill = row.skillLevel ? `มือ ${row.skillLevel}` : "ยังไม่ระบุมือ";
 
@@ -165,14 +227,20 @@ function SelfCheckin({
   meId,
   present,
   onToggle,
+  onJoin,
+  joining,
   quotaText,
+  full,
   myQueuePosition,
   error,
   inCount,
 }: Props & {
   present: Record<string, boolean>;
   onToggle: () => void;
+  onJoin: () => void;
+  joining: boolean;
   quotaText: string;
+  full: boolean;
   error: string | null;
   inCount: number;
 }) {
@@ -246,9 +314,12 @@ function SelfCheckin({
           </p>
         </section>
       ) : (
-        <p className="rounded-[16px] border border-dashed border-line px-4 py-6 text-center text-[12.5px] text-muted">
-          คุณยังไม่ได้อยู่ในรอบนี้ — ทักหัวหน้าก๊วนให้เพิ่มชื่อก่อนนะ
-        </p>
+        <JoinCard
+          onJoin={onJoin}
+          joining={joining}
+          quotaText={quotaText}
+          full={full}
+        />
       )}
 
       <section className="flex flex-col gap-2">

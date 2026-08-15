@@ -139,3 +139,13 @@ export const SAMPLE_BOARD_NOW = SAMPLE_NOW;
 
 /** The player the sample session treats as "you". */
 export const SAMPLE_ME_ID = "champ";
+
+/**
+ * A guan member who is not in tonight's session.
+ *
+ * Every other sample player is on the roster, which makes the one screen a
+ * player sees *before* they join unreachable. This id is what the `newcomer`
+ * preview looks through — it deliberately appears in no court, no queue and no
+ * cost share, so the join flow is the only thing on the screen.
+ */
+export const SAMPLE_NEWCOMER_ID = "nut";

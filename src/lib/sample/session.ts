@@ -61,6 +61,9 @@ export const SAMPLE_PLAYERS: SamplePlayer[] = [
   player("bank", "แบงค์", "P-", 4),
   player("mee", "หมี", "N", 5, { isWoman: true }),
   player("jedi", "เจได", "S", 0),
+  // In the guan, not in tonight's session. Deliberately absent from SAMPLE_ROSTER
+  // so the "you have not joined yet" screen is reachable — see SAMPLE_NEWCOMER_ID.
+  player("nut", "นัท", "S", 1),
 ];
 
 export const SAMPLE_PLAYERS_BY_ID = new Map(

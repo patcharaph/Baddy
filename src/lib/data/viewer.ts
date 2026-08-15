@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { getCurrentPlayer } from "@/lib/auth/current-player";
 import type { MemberRole } from "@/lib/domain/types";
 import { hasSupabaseConfig } from "@/lib/env";
-import { SAMPLE_ME_ID } from "@/lib/sample/board";
+import { SAMPLE_ME_ID, SAMPLE_NEWCOMER_ID } from "@/lib/sample/board";
 import { getReadClient } from "@/lib/supabase/read-client";
 
 /**
@@ -22,21 +22,53 @@ export interface Viewer {
   role: MemberRole;
   /** True when `role` came from the preview switch, not from a membership. */
   preview: boolean;
+  /**
+   * Which preview is selected, so the switch can show it.
+   *
+   * Not the same as `role`: `newcomer` resolves to the `player` role, and the
+   * switch still has to render it as its own choice. Null once Supabase is
+   * configured, where there is no preview to show.
+   */
+  previewAs: PreviewRole | null;
 }
 
 export const PREVIEW_ROLE_COOKIE = "baddy_preview_role";
 
 /**
- * The role the sample board is being reviewed as.
+ * What the sample board can be reviewed as.
  *
- * Sample data has no memberships to read, and both halves of the design need to
- * be reviewable, so the role comes from a cookie the preview switch writes.
+ * `newcomer` is a player like any other — same role, same permissions — who
+ * simply has no row in tonight's session yet. It is a separate preview because
+ * the screen a player sees before they join is a different screen, and every
+ * sample player is already in the roster, so there is otherwise no way to look
+ * at it without a Supabase project.
  */
-async function previewRole(): Promise<MemberRole> {
-  const store = await cookies();
-  return store.get(PREVIEW_ROLE_COOKIE)?.value === "player"
-    ? "player"
-    : "organizer";
+export type PreviewRole = MemberRole | "newcomer";
+
+/**
+ * The viewer the sample board is being reviewed as.
+ *
+ * Sample data has no memberships to read, and every half of the design needs to
+ * be reviewable, so this comes from a cookie the preview switch writes.
+ */
+async function previewViewer(): Promise<{
+  playerId: string;
+  role: MemberRole;
+  previewAs: PreviewRole;
+}> {
+  const value = (await cookies()).get(PREVIEW_ROLE_COOKIE)?.value;
+
+  if (value === "newcomer") {
+    return {
+      playerId: SAMPLE_NEWCOMER_ID,
+      role: "player",
+      previewAs: "newcomer",
+    };
+  }
+  if (value === "player") {
+    return { playerId: SAMPLE_ME_ID, role: "player", previewAs: "player" };
+  }
+  return { playerId: SAMPLE_ME_ID, role: "organizer", previewAs: "organizer" };
 }
 
 /**
@@ -48,12 +80,17 @@ async function previewRole(): Promise<MemberRole> {
  */
 export async function resolveViewer(guanId: string | null): Promise<Viewer> {
   if (!hasSupabaseConfig) {
-    return { playerId: SAMPLE_ME_ID, role: await previewRole(), preview: true };
+    return { ...(await previewViewer()), preview: true };
   }
 
   const player = await getCurrentPlayer();
   if (!player || !guanId) {
-    return { playerId: player?.id ?? null, role: "player", preview: false };
+    return {
+      playerId: player?.id ?? null,
+      role: "player",
+      preview: false,
+      previewAs: null,
+    };
   }
 
   const supabase = await getReadClient();
@@ -68,5 +105,6 @@ export async function resolveViewer(guanId: string | null): Promise<Viewer> {
     playerId: player.id,
     role: data?.role === "organizer" ? "organizer" : "player",
     preview: false,
+    previewAs: null,
   };
 }

@@ -3,17 +3,20 @@
 import { useTransition } from "react";
 
 import { setPreviewRole } from "@/lib/data/mutations";
-import type { MemberRole } from "@/lib/domain/types";
+import type { PreviewRole } from "@/lib/data/viewer";
 
-const ROLES: { value: MemberRole; label: string }[] = [
+const ROLES: { value: PreviewRole; label: string }[] = [
   { value: "organizer", label: "หัวหน้าก๊วน" },
   { value: "player", label: "ผู้เล่น" },
+  { value: "newcomer", label: "ยังไม่เข้ารอบ" },
 ];
 
-const HINTS: Record<MemberRole, string> = {
+const HINTS: Record<PreviewRole, string> = {
   organizer:
     "เปิดรอบ เช็คอินแทนคนอื่น จัดคิว บันทึกลูก เลือกวิธีหาร และติ๊กสถานะจ่าย",
   player: "เช็คอินได้แค่ของตัวเอง ดูคิวและยอดของตัวเองแบบอ่านอย่างเดียว",
+  newcomer:
+    "ผู้เล่นที่อยู่ในก๊วนแต่ยังไม่มีชื่อในรอบนี้ — เข้าร่วมเองได้จากหน้าเช็คอิน",
 };
 
 /**
@@ -24,7 +27,7 @@ const HINTS: Record<MemberRole, string> = {
  * is deliberately hard to miss — and it disappears entirely once Supabase is
  * configured, because then the role is a membership, not a choice.
  */
-export function PreviewBar({ role }: { role: MemberRole }) {
+export function PreviewBar({ role }: { role: PreviewRole }) {
   const [pending, startTransition] = useTransition();
 
   return (

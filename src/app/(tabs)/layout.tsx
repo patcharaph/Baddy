@@ -30,7 +30,9 @@ export default async function TabsLayout({ children }: LayoutProps<"/">) {
           isOrganizer={viewer.role === "organizer"}
         />
 
-        {kind === "sample" ? <PreviewBar role={viewer.role} /> : null}
+        {kind === "sample" && viewer.previewAs ? (
+          <PreviewBar role={viewer.previewAs} />
+        ) : null}
 
         <div className="flex-1 pb-24">{children}</div>
 

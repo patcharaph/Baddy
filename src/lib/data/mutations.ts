@@ -13,12 +13,14 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
 import {
+  guanIdForSession,
+  requireCurrentPlayerId,
   requireOrganizer,
   requireOrganizerForMatch,
   requireSelfOrOrganizer,
 } from "@/lib/auth/guard";
-import { PREVIEW_ROLE_COOKIE } from "@/lib/data/viewer";
-import type { MemberRole } from "@/lib/domain/types";
+import { PREVIEW_ROLE_COOKIE, type PreviewRole } from "@/lib/data/viewer";
+import { placeJoiner } from "@/lib/domain/join";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { THEME_COOKIE, type ThemePreference } from "@/lib/theme";
 
@@ -270,13 +272,76 @@ export async function setCheckIn(
 }
 
 /**
+ * Put yourself in tonight's session (PRD FR-3, US-2.2).
+ *
+ * Takes no player id. The row it writes is keyed on "me", and an action that let
+ * the caller name "me" would be an endpoint for adding anyone to anything — so
+ * the id comes from the session cookie, server-side, and nowhere else.
+ *
+ * Membership in the guan is still required, and that check is the schema's:
+ * `session_participants_insert` demands `is_guan_member`. A stranger with the
+ * session id gets a refusal from Postgres, not from here.
+ */
+export async function joinSession(sessionId: string): Promise<void> {
+  const guanId = await guanIdForSession(sessionId);
+  if (!guanId) fail("เข้าร่วมรอบ", "ไม่พบรอบเล่นนี้ หรือคุณไม่ได้อยู่ในก๊วนนี้");
+
+  const playerId = await requireCurrentPlayerId(guanId);
+  const supabase = await getSupabaseServerClient();
+
+  const { data: session, error: sessionError } = await supabase
+    .from("sessions")
+    .select("capacity, closed_at")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (sessionError) fail("เข้าร่วมรอบ", sessionError.message);
+  if (!session) fail("เข้าร่วมรอบ", "ไม่พบรอบเล่นนี้");
+  if (session.closed_at) fail("เข้าร่วมรอบ", "รอบนี้ปิดไปแล้ว");
+
+  const { data: rows, error: rosterError } = await supabase
+    .from("session_participants")
+    .select("player_id, status")
+    .eq("session_id", sessionId);
+
+  if (rosterError) fail("เข้าร่วมรอบ", rosterError.message);
+
+  const roster = rows ?? [];
+  if (roster.some((r) => r.player_id === playerId)) {
+    // Not an error worth showing: a double tap, or a second tab. The roster
+    // already says what the player wanted it to say.
+    revalidateSession();
+    return;
+  }
+
+  const placement = placeJoiner({
+    capacity: session.capacity,
+    checkedInCount: roster.filter((r) => r.status === "checked_in").length,
+    waitlistCount: roster.filter((r) => r.status === "waitlist").length,
+  });
+
+  const { error } = await supabase.from("session_participants").insert({
+    session_id: sessionId,
+    player_id: playerId,
+    status: placement.status,
+    waitlist_position: placement.waitlistPosition,
+    check_in_at:
+      placement.status === "checked_in" ? new Date().toISOString() : null,
+  });
+
+  if (error) fail("เข้าร่วมรอบ", error.message);
+
+  revalidateSession();
+}
+
+/**
  * Switch the sample board between the organizer's and the player's view.
  *
  * Sample data has no memberships to read, and both halves of the design need to
  * be reviewable, so the preview role lives in a cookie. It is only ever read
  * when Supabase is not configured — see `resolveViewer`.
  */
-export async function setPreviewRole(role: MemberRole): Promise<void> {
+export async function setPreviewRole(role: PreviewRole): Promise<void> {
   const store = await cookies();
   store.set(PREVIEW_ROLE_COOKIE, role, {
     path: "/",
