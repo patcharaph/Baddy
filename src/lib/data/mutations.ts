@@ -12,6 +12,11 @@
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 
+import {
+  requireOrganizer,
+  requireOrganizerForMatch,
+  requireSelfOrOrganizer,
+} from "@/lib/auth/guard";
 import { PREVIEW_ROLE_COOKIE } from "@/lib/data/viewer";
 import type { MemberRole } from "@/lib/domain/types";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
@@ -42,6 +47,8 @@ export async function startMatch(
   if (playerIds.length === 0) {
     fail("เริ่มแมตช์", "ยังไม่ได้เลือกผู้เล่น");
   }
+
+  await requireOrganizer(sessionId);
 
   const supabase = await getSupabaseServerClient();
 
@@ -89,6 +96,8 @@ export async function startMatch(
 
 /** End a match, which frees its court and restarts everyone's wait clock. */
 export async function endMatch(matchId: string): Promise<void> {
+  await requireOrganizerForMatch(matchId);
+
   const supabase = await getSupabaseServerClient();
 
   const { error } = await supabase
@@ -115,6 +124,8 @@ export async function logShuttle(
 ): Promise<void> {
   if (count <= 0) fail("บันทึกลูก", `จำนวนลูกต้องมากกว่า 0 (ได้ ${count})`);
 
+  await requireOrganizer(sessionId);
+
   const supabase = await getSupabaseServerClient();
 
   const { error } = await supabase.from("shuttle_logs").insert({
@@ -137,6 +148,8 @@ export async function logShuttle(
  * than the audit trail was worth.
  */
 export async function undoLastShuttle(sessionId: string): Promise<void> {
+  await requireOrganizer(sessionId);
+
   const supabase = await getSupabaseServerClient();
 
   const { data: last, error: readError } = await supabase
@@ -166,6 +179,10 @@ export async function setPaid(
   playerId: string,
   paid: boolean,
 ): Promise<void> {
+  // A player may tick their own row — `cost_shares_mark_own_paid` allows it, and
+  // "I already transferred" is the player's own claim to make.
+  await requireSelfOrOrganizer(sessionId, playerId);
+
   const supabase = await getSupabaseServerClient();
 
   const { error } = await supabase
@@ -185,6 +202,8 @@ export async function setSplitMode(
   sessionId: string,
   splitMode: "buffet" | "per_game" | "even",
 ): Promise<void> {
+  await requireOrganizer(sessionId);
+
   const supabase = await getSupabaseServerClient();
 
   const { error } = await supabase
@@ -211,6 +230,8 @@ export async function setCheckIn(
   playerId: string,
   present: boolean,
 ): Promise<void> {
+  await requireSelfOrOrganizer(sessionId, playerId);
+
   const supabase = await getSupabaseServerClient();
 
   const { data: current, error: readError } = await supabase
