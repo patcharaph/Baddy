@@ -13,6 +13,20 @@
  * brand lime used as a *background* (it survives both themes with near-black
  * text on it), while `accent` is the lime used as *text* and has to darken to
  * a readable olive on a light background.
+ *
+ * The four text greys are a ladder — ink, muted, faint, ghost — and every rung
+ * carries real words, so every rung clears WCAG AA (4.5:1) against the darkest
+ * light surface (`--app`) and the lightest dark one (`--raised` under the
+ * `accent-tint` wash). That is what sets the values below, and it is why the
+ * ladder is shallower than a design mock would draw it: the bottom two rungs
+ * were originally decorative weights, and a weight that carries a sentence has
+ * to be readable. Contrast at the worst surface, per rung:
+ *
+ *       ink 14.7 / 13.9   muted 7.0 / 7.1   faint 5.5 / 5.5   ghost 4.5 / 4.6
+ *                                                             (light / dark)
+ *
+ * Moving any of the four means re-checking all four, because they have to stay
+ * both ordered and above the line.
  */
 
 /* -------------------------------------------------------------------------
@@ -37,9 +51,9 @@
   --d-line-soft: rgba(255, 255, 255, 0.06);
   --d-line-strong: rgba(255, 255, 255, 0.16);
   --d-ink: #ffffff;
-  --d-muted: rgba(255, 255, 255, 0.5);
-  --d-faint: rgba(255, 255, 255, 0.36);
-  --d-ghost: rgba(255, 255, 255, 0.25);
+  --d-muted: rgba(255, 255, 255, 0.67);
+  --d-faint: rgba(255, 255, 255, 0.56);
+  --d-ghost: rgba(255, 255, 255, 0.49);
   --d-accent: #c8ff3d;
   --d-accent-tint: rgba(200, 255, 61, 0.09);
   --d-accent-soft: rgba(200, 255, 61, 0.16);
@@ -67,9 +81,9 @@
   --line-soft: #e9ecdf;
   --line-strong: #c3cab4;
   --ink: #16180f;
-  --muted: #565c4b;
-  --faint: #6b7160;
-  --ghost: #9aa08c;
+  --muted: #4a4e40;
+  --faint: #5a5e4f;
+  --ghost: #676b5b;
   --accent: #4a6f0c;
   --accent-tint: #f2fbdd;
   --accent-soft: #eaf9c9;

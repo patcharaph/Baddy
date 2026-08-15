@@ -78,7 +78,10 @@ export function SettleScreen({
       {error ? <Notice>{error}</Notice> : null}
 
       {/* Deliberately white in both themes: this card gets held up to someone
-          else's camera, and a QR only scans reliably dark-on-white. */}
+          else's camera, and a QR only scans reliably dark-on-white. Its greys
+          are `black/…` rather than the theme tokens for the same reason — the
+          surface under them never changes — so they carry their own AA check:
+          /65 reads 7.0:1 and /55 reads 4.8:1 on white. */}
       <section className="flex flex-col items-center gap-3 rounded-[20px] border border-black/10 bg-white p-[18px] shadow-card">
         <span className="text-center font-mono text-[11px] tracking-[0.14em] text-[#0B0C0E]">
           PROMPTPAY · {promptpayTarget ?? guanName}
@@ -98,12 +101,12 @@ export function SettleScreen({
           <span className="font-mono text-[26px] font-bold text-[#0B0C0E]">
             {mine ? baht(mine.total) : "—"}
           </span>
-          <span className="text-center text-[11.5px] text-black/50 text-pretty">
+          <span className="text-center text-[11.5px] text-black/65 text-pretty">
             {mine ? `ยอดของคุณ · ${mine.breakdown}` : "คุณยังไม่ได้อยู่ในรอบนี้"}
           </span>
         </div>
 
-        <p className="text-center text-[10.5px] leading-snug text-black/40 text-pretty">
+        <p className="text-center text-[10.5px] leading-snug text-black/55 text-pretty">
           {promptpayTarget
             ? "ยังไม่ได้ผูก QR จริง — สแกนไม่ได้ ใช้ตัวเลขด้านบนโอนเองไปก่อน"
             : "ก๊วนนี้ยังไม่ได้ตั้งพร้อมเพย์ — ถามหัวหน้าก๊วนว่าโอนเข้าบัญชีไหน"}
