@@ -193,6 +193,23 @@ export interface Database {
       is_guan_member: { Args: { target_guan_id: string }; Returns: boolean };
       is_guan_organizer: { Args: { target_guan_id: string }; Returns: boolean };
       session_guan_id: { Args: { target_session_id: string }; Returns: string };
+      // 0002 — the invite flow. `security definer` in the schema, because the
+      // caller is not a member of the guan yet and cannot read it.
+      guan_invite_preview: {
+        Args: { code: string };
+        Returns: {
+          guan_id: string;
+          name: string;
+          home_venue: string | null;
+          member_count: number;
+        }[];
+      };
+      join_guan_by_invite: { Args: { code: string }; Returns: string };
+      create_guan: {
+        Args: { guan_name: string; venue?: string | null; court_rate?: number };
+        Returns: string;
+      };
+      rotate_invite_code: { Args: { target_guan_id: string }; Returns: string };
     };
     Enums: {
       member_role: MemberRole;
