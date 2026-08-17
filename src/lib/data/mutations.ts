@@ -11,16 +11,25 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 import {
   guanIdForSession,
   requireCurrentPlayerId,
+  requireGuanOrganizer,
   requireOrganizer,
   requireOrganizerForMatch,
   requireSelfOrOrganizer,
 } from "@/lib/auth/guard";
 import { PREVIEW_ROLE_COOKIE, type PreviewRole } from "@/lib/data/viewer";
+import {
+  validateGuanDraft,
+  validateSessionDraft,
+  type FieldErrors,
+} from "@/lib/domain/drafts";
+import { parseInviteCode } from "@/lib/domain/invite";
 import { placeJoiner } from "@/lib/domain/join";
+import { hasSupabaseConfig } from "@/lib/env";
 import { getSupabaseServerClient } from "@/lib/supabase/server";
 import { THEME_COOKIE, type ThemePreference } from "@/lib/theme";
 
@@ -332,6 +341,182 @@ export async function joinSession(sessionId: string): Promise<void> {
   if (error) fail("เข้าร่วมรอบ", error.message);
 
   revalidateSession();
+}
+
+// ---------------------------------------------------------------------------
+// Creating a guan and a session (PRD FR-1, FR-2)
+//
+// These four are shaped differently from everything above: they are the only
+// writes a *form* performs, so a bad value is expected traffic rather than an
+// exception. They return field errors for `useActionState` to render next to the
+// input that caused them, and only throw for the cases a form cannot fix —
+// permission, and a Postgres error.
+// ---------------------------------------------------------------------------
+
+export interface FormState {
+  errors: FieldErrors;
+}
+
+/** Errors with nowhere better to sit. Rendered above the submit button. */
+const FORM = "form";
+
+const NO_SUPABASE: FormState = {
+  errors: {
+    [FORM]:
+      "โหมดข้อมูลตัวอย่างสร้างของจริงไม่ได้ — ตั้งค่า Supabase ใน .env.local ก่อน",
+  },
+};
+
+function formError(message: string): FormState {
+  return { errors: { [FORM]: message } };
+}
+
+function field(form: FormData, name: string): string | null {
+  const value = form.get(name);
+  return typeof value === "string" ? value : null;
+}
+
+/**
+ * Create a guan and become its organizer (US-1.1).
+ *
+ * The insert goes through the `create_guan` RPC rather than two inserts from
+ * here, because `guans_select` is `is_guan_member(id)`: a guan whose membership
+ * row failed to land is invisible to the person who just created it. See 0002.
+ */
+export async function createGuan(
+  _previous: FormState | null,
+  form: FormData,
+): Promise<FormState> {
+  if (!hasSupabaseConfig) return NO_SUPABASE;
+
+  const draft = validateGuanDraft({
+    name: field(form, "name"),
+    homeVenue: field(form, "homeVenue"),
+    defaultCourtRate: field(form, "defaultCourtRate"),
+  });
+
+  if (!draft.ok) return { errors: draft.errors };
+
+  const supabase = await getSupabaseServerClient();
+  const { error } = await supabase.rpc("create_guan", {
+    guan_name: draft.value.name,
+    venue: draft.value.homeVenue,
+    court_rate: draft.value.defaultCourtRate,
+  });
+
+  if (error) return formError(`สร้างก๊วนไม่สำเร็จ: ${error.message}`);
+
+  revalidatePath("/profile");
+  // To the profile, which is where the invite link lives — creating a guan
+  // nobody has been invited to is not a finished action (US-1.1).
+  redirect("/profile");
+}
+
+/**
+ * Open a round (US-2.1).
+ *
+ * A plain insert: `sessions_write_organizer` already covers this, and there is
+ * only one row to write, so there is nothing here an RPC would make atomic.
+ *
+ * The rate the chosen split mode needs is required here rather than at
+ * settle-up. The cost engine refuses without it either way — the difference is
+ * whether the refusal happens now, in front of the organizer filling in a form,
+ * or at 23:00 in front of everyone waiting to pay.
+ */
+export async function createSession(
+  _previous: FormState | null,
+  form: FormData,
+): Promise<FormState> {
+  if (!hasSupabaseConfig) return NO_SUPABASE;
+
+  const draft = validateSessionDraft({
+    guanId: field(form, "guanId"),
+    venue: field(form, "venue"),
+    startsAtLocal: field(form, "startsAtLocal"),
+    endsAtLocal: field(form, "endsAtLocal"),
+    tzOffsetMinutes: field(form, "tzOffsetMinutes"),
+    courtCount: field(form, "courtCount"),
+    courtRate: field(form, "courtRate"),
+    capacity: field(form, "capacity"),
+    splitMode: field(form, "splitMode"),
+    buffetRate: field(form, "buffetRate"),
+    womenRate: field(form, "womenRate"),
+    perGameRate: field(form, "perGameRate"),
+    shuttlesIncludedPerMatch: field(form, "shuttlesIncludedPerMatch"),
+  });
+
+  if (!draft.ok) return { errors: draft.errors };
+
+  const s = draft.value;
+  await requireGuanOrganizer(s.guanId);
+
+  const supabase = await getSupabaseServerClient();
+  const { error } = await supabase.from("sessions").insert({
+    guan_id: s.guanId,
+    venue: s.venue,
+    starts_at: s.startsAt,
+    ends_at: s.endsAt,
+    court_count: s.courtCount,
+    court_rate: s.courtRate,
+    capacity: s.capacity,
+    split_mode: s.splitMode,
+    buffet_rate: s.buffetRate,
+    women_rate: s.womenRate,
+    per_game_rate: s.perGameRate,
+    shuttles_included_per_match: s.shuttlesIncludedPerMatch,
+  });
+
+  if (error) return formError(`เปิดรอบไม่สำเร็จ: ${error.message}`);
+
+  revalidateSession();
+  redirect("/");
+}
+
+/**
+ * Redeem an invite code (US-1.2).
+ *
+ * The code is the only argument because it is the only credential: whoever holds
+ * it may join, and who they join *as* comes from the session cookie. `code` is
+ * re-validated here rather than trusted from the route, since a server action is
+ * an endpoint of its own and does not only receive what the page put in it.
+ */
+export async function joinGuanByInvite(
+  _previous: FormState | null,
+  form: FormData,
+): Promise<FormState> {
+  if (!hasSupabaseConfig) return NO_SUPABASE;
+
+  const code = parseInviteCode(field(form, "code") ?? "");
+  if (code === null) return formError("ลิงก์เชิญนี้ไม่ถูกต้อง");
+
+  const supabase = await getSupabaseServerClient();
+  const { error } = await supabase.rpc("join_guan_by_invite", { code });
+
+  if (error) return formError(error.message);
+
+  revalidatePath("/profile");
+  revalidateSession();
+  redirect("/");
+}
+
+/**
+ * Replace a guan's invite code, ending every link that carried the old one.
+ *
+ * The link is the credential, so there has to be a way to revoke one — a code
+ * pasted into the wrong group chat is otherwise permanent. Organizer-only, and
+ * the RPC checks that too.
+ */
+export async function rotateInviteCode(guanId: string): Promise<void> {
+  await requireGuanOrganizer(guanId);
+
+  const supabase = await getSupabaseServerClient();
+  const { error } = await supabase.rpc("rotate_invite_code", {
+    target_guan_id: guanId,
+  });
+
+  if (error) fail("เปลี่ยนลิงก์เชิญ", error.message);
+
+  revalidatePath("/profile");
 }
 
 /**

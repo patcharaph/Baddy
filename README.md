@@ -39,7 +39,7 @@ npm run dev          # http://localhost:3000
 
 ```bash
 cp .env.example .env.local     # แล้วกรอก URL + anon key + service role key
-npm run db:push                # apply supabase/migrations/0001_init.sql
+npm run db:push                # apply ทุกไฟล์ใน supabase/migrations/
 npm run db:seed                # ใส่รอบเล่นตัวอย่างลง DB จริง
 ```
 
@@ -60,12 +60,15 @@ npm run db:types
 ```
 src/
   app/
-    (tabs)/            7 หน้าจอตาม prototype
+    (tabs)/            7 หน้าจอตาม prototype + 2 หน้าฟอร์ม
                        / (รอบวันนี้) · checkin · queue · shuttle
                        money · settle · profile
+                       new-guan · new-session
+    join/[code]        หน้ารับลิงก์เชิญ — อยู่นอก shell เพราะยังไม่ได้เป็นสมาชิก
   components/          UI primitives ตาม design token ใน globals.css
   lib/
-    domain/            ★ queue engine + cost engine + กติกาเข้ารอบ (pure TS, มีเทสต์)
+    domain/            ★ queue engine + cost engine + กติกาเข้ารอบ
+                       + ลิงก์เชิญ + ตรวจฟอร์ม (pure TS, มีเทสต์ทั้งหมด)
     data/              ★ mappers (มีเทสต์) + queries + mutations + realtime
     auth/              ตรวจ id token ของ LINE + guard ของ mutation
     supabase/          browser / server / admin client + types
@@ -73,7 +76,8 @@ src/
     sample/            ข้อมูลตัวอย่าง รูปร่างเดียวกับที่ query คืนมา
 scripts/seed.ts        ใส่ข้อมูลตัวอย่างลง Supabase จริง
 supabase/
-  migrations/          schema + RLS + realtime
+  migrations/          0001 schema + RLS + realtime
+                       0002 สร้างก๊วน + ลิงก์เชิญ (security definer)
 docs/                  requirement ต้นทาง
 ```
 
@@ -96,7 +100,8 @@ lib/sample ────────┘
 
 **mappers อยู่แยกจาก queries เพราะทดสอบได้** — "ใครนับว่ารอคิวอยู่", "เล่นไปกี่เกม",
 "คอร์ทไหนว่าง" เป็น logic ที่พังได้ง่ายสุด จึงเขียนเป็น pure function แล้วเทสต์
-โดยไม่ต้องมี DB (ปัจจุบัน 107 เทสต์ ครอบ engine, mapper และตัวตรวจ id token ของ LINE)
+โดยไม่ต้องมี DB (ปัจจุบัน 169 เทสต์ ครอบ engine, mapper, ตัวตรวจ id token ของ LINE,
+ลิงก์เชิญ และการตรวจฟอร์มก่อนเป็น row)
 
 ### ธีม (มืด / สว่าง)
 
@@ -177,6 +182,67 @@ access/refresh token ลง httpOnly cookie โดยไม่ผ่านเบ
 และโควตา 0 นับว่าเต็มเสมอ ตัว `placeJoiner` ไม่รู้จัก Supabase ส่วนการเลื่อนคิวอัตโนมัติ
 เมื่อมีคนถอน (US-2.4) ยังไม่ได้ทำ
 
+### สร้างก๊วน · ลิงก์เชิญ · เปิดรอบ (FR-1, FR-2)
+
+`0001` ให้คอลัมน์ `guans.invite_code` มาแต่ไม่มีอะไรใช้มันได้ และมีสองอย่างใน schema
+เดิมที่ขวางไม่ให้ลิงก์เชิญทำงานจริง — `0002` แก้ที่ต้นเหตุ ไม่ได้เลี่ยงในแอป
+
+**1. default เดิมเป็น base64** ซึ่งมี `+` กับ `/` — `/` ใน `/join/<code>` ไม่ใช่รหัสที่มี
+สแลช มันคือ *อีก route หนึ่ง* ตอนนี้ `generate_invite_code()` แปลงเป็น base64url
+(12 ตัวอักษร 72 บิต) และ migration ก็ mint ใหม่ให้ row ที่ได้รหัสจาก default เดิมไปแล้ว
+
+**2. `guans_select` คือ `is_guan_member(id)`** — แต่คนที่ถือลิงก์เชิญยัง *ไม่ได้* เป็น
+สมาชิก นั่นคือนิยามของคำเชิญ หน้า landing จึงอ่านชื่อก๊วนที่ตัวเองกำลังชวนเข้าไม่ได้
+
+ข้อ 2 **ไม่ใช่ policy ที่ควรผ่อน** — RLS ไม่เห็นว่า caller filter ด้วย `invite_code`
+ถ้าจะให้อ่านได้ต้องเขียน `using (true)` ซึ่งเท่ากับเปิดให้อ่านทั้งตาราง ทางที่เลือกคือ
+`security definer` function แคบ ๆ ที่ตอบคำถามเดียวและเล็งไปที่อื่นไม่ได้:
+
+| function | ตอบอะไร | ใครเรียกได้ |
+|----------|---------|-------------|
+| `guan_invite_preview(code)` | ชื่อ · สนาม · จำนวนสมาชิก | `anon` ด้วย |
+| `join_guan_by_invite(code)` | ใส่ membership ของ *ตัวเอง* | `authenticated` |
+| `create_guan(...)` | สร้างก๊วน + ตั้งตัวเองเป็นหัวหน้า | `authenticated` |
+| `rotate_invite_code(guan)` | mint รหัสใหม่ ล้มลิงก์เดิม | `authenticated` (เช็ค organizer ในตัว) |
+
+`guan_invite_preview` **ไม่ได้ `select *`** — คำเชิญบอกชื่อ สนาม และจำนวนคน พอให้รู้ว่า
+มาถูกก๊วน มันไม่บอกเบอร์พร้อมเพย์ของหัวหน้าก๊วน และเปิดให้ `anon` เรียกได้เพราะการ
+บังคับให้ล็อกอินก่อนจะได้เห็นว่าถูกชวนเข้าอะไร คือวิธีที่คำเชิญถูกเมิน
+
+`create_guan` เป็น function ไม่ใช่สอง insert จากแอป เพราะสองอันนั้นไม่เป็นอิสระต่อกัน —
+`guans_select` ต้องเป็นสมาชิกก่อน ถ้าแถว membership พลาด ก๊วนที่เพิ่งสร้างจะ**มองไม่เห็น
+แม้แต่โดยคนที่สร้าง** ไม่ใช่ error ที่เห็น กด retry หรือเก็บกวาดได้ ในฟังก์ชันมันเป็น
+transaction เดียว และ `owner_player_id` มาจาก session ไม่ใช่จาก argument — เชื่อ
+argument ก็คือเปิด endpoint ให้สร้างก๊วนที่มีเจ้าของเป็นคนอื่น
+
+`join_guan_by_invite` ใส่ `role = 'player'` เสมอ และ `on conflict do nothing` — กดลิงก์
+ซ้ำไม่ใช่ error และต้องไม่เป็นช่องเขียนทับ membership เดิม โดยเฉพาะการดึงหัวหน้าก๊วน
+กลับลงมาเป็นสมาชิก
+
+**ลิงก์คือ credential** จึงต้องมีทางยกเลิก `rotate_invite_code` คือทางนั้น ไม่งั้นรหัสที่
+วางผิดห้องแชทจะใช้ได้ตลอดไป และทางแก้เดียวคือลบก๊วน — และเพราะ Postgres ไม่มี
+column-level RLS `invite_code` จึงอ่านได้โดย**สมาชิกทุกคน** ไม่ใช่แค่หัวหน้า หน้าโปรไฟล์
+เลือกจะ*เสนอ*ลิงก์ให้แค่หัวหน้า แต่คำอธิบายที่ตรงความจริงคือ "สมาชิกอ่านได้"
+
+ลิงก์ที่แชร์เป็นรูปแบบ LIFF (`liff.line.me/<id>/join/<code>`) เมื่อมี `NEXT_PUBLIC_LIFF_ID`
+เพราะกดจากแชทแล้วเข้า webview ที่ล็อกอินอยู่แล้ว — ซึ่งเป็นขั้นตอนที่ FR-1 มีไว้เพื่อตัด
+ออก ถ้าไม่มี LIFF id จะ fallback เป็น origin ของแอปเอง (`lib/origin.ts` อ่านจาก request
+ไม่ใช่ env จึงไม่มี `NEXT_PUBLIC_APP_URL` ให้ลืมตั้งบน preview deploy)
+
+`parseInviteCode` รับทั้งรหัสเปล่าและ URL เต็ม ๆ เพราะคนแชร์*ลิงก์* ไม่ได้แชร์รหัส และ
+ลิงก์มาพร้อม scheme, host, liff id และบางทีมี `?openExternalBrowser=1` ต่อท้าย รหัสเป็น
+case-sensitive (base64url ใช้ทั้งสองเคส) จึง trim และตัดได้ แต่ห้าม lowercase
+
+**เปิดรอบแล้วบังคับเรตของโหมดที่เลือกทันที** — cost engine ไม่ยอมคำนวณถ้าไม่มีเรตอยู่แล้ว
+ต่างกันแค่ว่าจะปฏิเสธตอนนี้ ตอนที่หัวหน้าก๊วนกรอกฟอร์มอยู่ หรือตอนสามทุ่มหน้าคนที่ยืนรอ
+จ่ายเงิน (`domain/drafts.ts` สะท้อน `requireRate` ใน `cost-engine.ts` ตรง ๆ)
+
+และ **`datetime-local` ไม่มีเขตเวลา** — `new Date("2026-08-18T19:00")` ตีความตามเขตเวลา
+ของ *server* ก๊วนที่เล่น 19:00 ที่กรุงเทพจะถูกเก็บเป็น 19:00 UTC ถ้า server อยู่ลอนดอน
+รอบจะโผล่ที่ตีสอง และ "รอมานานเท่าไหร่" ทั้งกระดานจะเพี้ยนไป 7 ชั่วโมง ฟอร์มจึงส่ง
+`new Date().getTimezoneOffset()` มาด้วย และ validator **ไม่ default เป็น UTC** — ไม่มี
+offset คือ error เพราะบั๊กแบบที่ทุกช่องบนฟอร์มดูถูกต้องคือบั๊กที่ไม่มีใครแจ้ง
+
 ### Realtime
 
 `useRealtimeBoard` ไม่เอา payload จาก realtime มาแปะหน้าจอตรง ๆ แต่ใช้เป็นสัญญาณ
@@ -206,7 +272,9 @@ plain object — กติกาความยุติธรรมของค
 
 - LINE webhook, push notification (waitlist เลื่อน / สรุปยอด)
 - การสร้าง QR พร้อมเพย์จริง — ตอนนี้เป็น placeholder โดยตั้งใจ
-- Flow สร้างก๊วน / เข้าร่วมด้วยลิงก์เชิญ / RSVP (FR-1, FR-2)
+- RSVP ล่วงหน้าแยกจากเช็คอินหน้างาน (US-2.2 vs US-2.3) — ตอนนี้กดเข้ารอบได้ทางเดียว
+  และนับเป็นเช็คอินทันที
+- แก้ไข/ปิดรอบและแก้ตั้งค่าก๊วนหลังสร้าง — สร้างได้แล้ว แต่ยังแก้ทีหลังไม่ได้
 - สถิติสะสมข้ามรอบในหน้าโปรไฟล์ — ตอนนี้แสดงเฉพาะรอบที่เปิดอยู่
 - waitlist auto-promote (US-2.4) — schema รองรับแล้วแต่ยังไม่มี logic
 

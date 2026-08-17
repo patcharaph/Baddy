@@ -221,6 +221,17 @@ export interface GuanMembershipView {
   name: string;
   homeVenue: string | null;
   role: "organizer" | "player";
+  defaultCourtRate: number;
+  /**
+   * The guan's invite code.
+   *
+   * Readable by every member, not just the organizer: `guans_select` is
+   * membership-wide and Postgres has no column-level RLS, so this is the
+   * schema's answer, not a choice made here. The profile only offers the link to
+   * organizers — but the honest description of the boundary is "any member can
+   * read it", which is why `rotate_invite_code` exists.
+   */
+  inviteCode: string;
 }
 
 /**
@@ -236,7 +247,9 @@ export async function fetchMyGuans(
 ): Promise<GuanMembershipView[]> {
   const { data, error } = await supabase
     .from("memberships")
-    .select("guan_id, role, guans ( name, home_venue )")
+    .select(
+      "guan_id, role, guans ( name, home_venue, default_court_rate, invite_code )",
+    )
     .eq("player_id", playerId);
 
   if (error) {
@@ -246,7 +259,12 @@ export async function fetchMyGuans(
   const rows = (data ?? []) as unknown as {
     guan_id: string;
     role: "organizer" | "player";
-    guans: { name: string; home_venue: string | null } | null;
+    guans: {
+      name: string;
+      home_venue: string | null;
+      default_court_rate: number;
+      invite_code: string;
+    } | null;
   }[];
 
   return rows.map((r) => ({
@@ -254,7 +272,48 @@ export async function fetchMyGuans(
     name: r.guans?.name ?? "ก๊วน",
     homeVenue: r.guans?.home_venue ?? null,
     role: r.role,
+    defaultCourtRate: r.guans?.default_court_rate ?? 0,
+    inviteCode: r.guans?.invite_code ?? "",
   }));
+}
+
+export interface InvitePreview {
+  guanId: string;
+  name: string;
+  homeVenue: string | null;
+  memberCount: number;
+}
+
+/**
+ * The guan behind an invite code (US-1.2).
+ *
+ * Goes through the `guan_invite_preview` RPC rather than selecting `guans`,
+ * because the person holding the invite is by definition not a member yet and
+ * `guans_select` would return them nothing. See 0002 for why the policy is not
+ * the thing that got loosened.
+ *
+ * A bad code is `null`, not an error: a mistyped or rotated link is an ordinary
+ * thing to land on, and the page has a sentence for it.
+ */
+export async function fetchInvitePreview(
+  supabase: Client,
+  code: string,
+): Promise<InvitePreview | null> {
+  const { data, error } = await supabase.rpc("guan_invite_preview", { code });
+
+  if (error) {
+    throw new Error(`เปิดลิงก์เชิญไม่สำเร็จ: ${error.message}`);
+  }
+
+  const row = (data ?? [])[0];
+  if (!row) return null;
+
+  return {
+    guanId: row.guan_id,
+    name: row.name,
+    homeVenue: row.home_venue,
+    memberCount: Number(row.member_count),
+  };
 }
 
 export interface SessionCostData {

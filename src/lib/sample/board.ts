@@ -149,3 +149,13 @@ export const SAMPLE_ME_ID = "champ";
  * cost share, so the join flow is the only thing on the screen.
  */
 export const SAMPLE_NEWCOMER_ID = "nut";
+
+/**
+ * The invite code the sample guan answers to.
+ *
+ * Shaped like a real one (URL-safe base64, 12 characters) so the join screen can
+ * be reviewed without a Supabase project — `/join/SAMPLE-guan1` resolves, and
+ * anything else on that route lands on the "this link is dead" state, which is
+ * the half of the screen that is otherwise hard to see on purpose.
+ */
+export const SAMPLE_INVITE_CODE = "SAMPLE-guan1";

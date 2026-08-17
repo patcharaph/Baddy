@@ -9,7 +9,7 @@ import {
   SectionHeading,
   StatTile,
 } from "@/components/ui";
-import { loadBoard, loadCostData } from "@/lib/data/source";
+import { loadBoard, loadCostData, loadOrganizerGuans } from "@/lib/data/source";
 import { tryComputeCostShares } from "@/lib/domain/cost-engine";
 import { baht } from "@/lib/domain/money";
 import { sessionHeadline } from "@/lib/format/datetime";
@@ -32,10 +32,35 @@ export default async function HomePage() {
   const cost = await loadCostData();
 
   if (!board) {
-    return (
+    // With no session there is no guan to resolve a role against, so the viewer
+    // reads as `player` regardless — see `resolveViewer`. Which of the two
+    // next steps to offer has to come from the guan list instead.
+    const { guans } = await loadOrganizerGuans();
+
+    return guans.length > 0 ? (
       <EmptyState
         title="ยังไม่มีรอบเล่นที่เปิดอยู่"
-        detail="เปิดรอบใหม่แล้วทุกอย่างของคืนนี้จะมารวมอยู่ที่หน้านี้"
+        detail="เปิดรอบใหม่แล้วทุกอย่างของคืนนี้ — เช็คอิน คิว ค่าลูก ยอดเงิน — จะมารวมอยู่ที่หน้านี้"
+        action={
+          <Link href="/new-session" className={primaryButton}>
+            เปิดรอบ
+          </Link>
+        }
+      />
+    ) : (
+      <EmptyState
+        title="ยังไม่มีรอบเล่นที่เปิดอยู่"
+        detail="ถ้าคุณอยู่ในก๊วนแล้ว รอหัวหน้าก๊วนเปิดรอบ — หรือสร้างก๊วนของตัวเองแล้วเปิดรอบเองได้เลย"
+        action={
+          <div className="flex flex-wrap justify-center gap-2.5">
+            <Link href="/new-guan" className={primaryButton}>
+              สร้างก๊วน
+            </Link>
+            <Link href="/join" className={ghostButton}>
+              เข้าร่วมด้วยลิงก์เชิญ
+            </Link>
+          </div>
+        }
       />
     );
   }

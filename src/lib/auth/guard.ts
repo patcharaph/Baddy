@@ -47,6 +47,18 @@ async function sessionIdForMatch(matchId: string): Promise<string | null> {
   return data?.session_id ?? null;
 }
 
+/**
+ * Refuse anyone who is not the organizer of this guan.
+ *
+ * The guan-level twin of `requireOrganizer`, for the one write that happens
+ * before a session exists: creating it. `sessions_write_organizer` is the real
+ * check — this is the loud one.
+ */
+export async function requireGuanOrganizer(guanId: string): Promise<void> {
+  const viewer = await resolveViewer(guanId);
+  if (viewer.role !== "organizer") deny(DENIED);
+}
+
 /** Refuse anyone who is not the organizer of this session's guan. */
 export async function requireOrganizer(sessionId: string): Promise<void> {
   const guanId = await guanIdForSession(sessionId);

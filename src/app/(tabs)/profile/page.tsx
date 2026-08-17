@@ -1,9 +1,22 @@
+import Link from "next/link";
+
+import { InviteLink } from "@/components/guan/invite-link";
 import { LiffStatusNote } from "@/components/profile/liff-status-note";
 import { ThemeSwitch } from "@/components/theme-switch";
-import { EmptyPanel, Pill, SectionHeading, StatTile } from "@/components/ui";
+import {
+  EmptyPanel,
+  ghostButton,
+  Pill,
+  primaryButton,
+  SectionHeading,
+  StatTile,
+} from "@/components/ui";
 import { loadBoard, loadCostData, loadProfile } from "@/lib/data/source";
 import { tryComputeCostShares } from "@/lib/domain/cost-engine";
+import { inviteUrl } from "@/lib/domain/invite";
 import { baht } from "@/lib/domain/money";
+import { publicEnv } from "@/lib/env";
+import { requestOrigin } from "@/lib/origin";
 import { getThemePreference } from "@/lib/theme";
 
 export const metadata = { title: "โปรไฟล์ — Baddy" };
@@ -23,6 +36,7 @@ export default async function ProfilePage() {
   const { board } = await loadBoard();
   const cost = await loadCostData();
   const theme = await getThemePreference();
+  const origin = await requestOrigin();
 
   const me =
     board?.roster.find((e) => e.player.id === viewer.playerId)?.player ?? null;
@@ -76,35 +90,65 @@ export default async function ProfilePage() {
         <SectionHeading note={`${guans.length} ก๊วน`}>ก๊วนของฉัน</SectionHeading>
 
         {guans.length === 0 ? (
-          <EmptyPanel>ยังไม่ได้เข้าร่วมก๊วนไหน — ขอลิงก์เชิญจากหัวหน้าก๊วนได้เลย</EmptyPanel>
+          <EmptyPanel>
+            ยังไม่ได้เข้าร่วมก๊วนไหน — เปิดลิงก์เชิญจากหัวหน้าก๊วน หรือสร้างก๊วนของตัวเอง
+          </EmptyPanel>
         ) : (
           <ul className="flex flex-col gap-2">
             {guans.map((guan) => (
               <li
                 key={guan.guanId}
-                className="flex min-h-14 items-center gap-3 rounded-[16px] border border-line-soft bg-inset-soft px-3.5 py-2.5"
+                className="flex flex-col gap-2.5 rounded-[16px] border border-line-soft bg-inset-soft px-3.5 py-2.5"
               >
-                <span
-                  className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[11px] bg-chip text-[13px] font-semibold"
-                  aria-hidden
-                >
-                  {guan.name.charAt(0)}
-                </span>
-                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate text-[13.5px] font-medium">
-                    {guan.name}
+                <div className="flex min-h-9 items-center gap-3">
+                  <span
+                    className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[11px] bg-chip text-[13px] font-semibold"
+                    aria-hidden
+                  >
+                    {guan.name.charAt(0)}
                   </span>
-                  <span className="truncate text-[11px] text-faint">
-                    {guan.homeVenue ?? "ยังไม่ได้ตั้งสนามประจำ"}
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-[13.5px] font-medium">
+                      {guan.name}
+                    </span>
+                    <span className="truncate text-[11px] text-faint">
+                      {guan.homeVenue ?? "ยังไม่ได้ตั้งสนามประจำ"}
+                    </span>
                   </span>
-                </span>
-                <Pill tone={guan.role === "organizer" ? "accent" : "quiet"}>
-                  {guan.role === "organizer" ? "หัวหน้า" : "สมาชิก"}
-                </Pill>
+                  <Pill tone={guan.role === "organizer" ? "accent" : "quiet"}>
+                    {guan.role === "organizer" ? "หัวหน้า" : "สมาชิก"}
+                  </Pill>
+                </div>
+
+                {/* Only the organizer is offered the link. Any member can read
+                    the code — `guans_select` is membership-wide and Postgres has
+                    no column-level RLS — so this is where the invite is *offered*,
+                    not where it is kept. `rotate_invite_code` is the remedy. */}
+                {guan.role === "organizer" ? (
+                  <InviteLink
+                    guanId={guan.guanId}
+                    guanName={guan.name}
+                    url={inviteUrl({
+                      code: guan.inviteCode,
+                      liffId: publicEnv.liffId,
+                      origin,
+                    })}
+                    canRotate={!viewer.preview}
+                  />
+                ) : null}
               </li>
             ))}
           </ul>
         )}
+
+        <div className="mt-1 flex gap-2.5">
+          <Link href="/new-guan" className={`${primaryButton} flex-1`}>
+            สร้างก๊วน
+          </Link>
+          <Link href="/join" className={`${ghostButton} flex-1`}>
+            เข้าร่วมด้วยลิงก์
+          </Link>
+        </div>
       </section>
 
       <section className="flex flex-col gap-2">
