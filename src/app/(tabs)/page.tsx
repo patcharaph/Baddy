@@ -9,7 +9,12 @@ import {
   SectionHeading,
   StatTile,
 } from "@/components/ui";
-import { loadBoard, loadCostData, loadOrganizerGuans } from "@/lib/data/source";
+import {
+  loadBoard,
+  loadCostData,
+  loadOrganizerGuans,
+  loadReopenableSession,
+} from "@/lib/data/source";
 import { tryComputeCostShares } from "@/lib/domain/cost-engine";
 import { baht } from "@/lib/domain/money";
 import { sessionHeadline } from "@/lib/format/datetime";
@@ -28,7 +33,7 @@ export const dynamic = "force-dynamic";
  * waiting on the person looking at it.
  */
 export default async function HomePage() {
-  const { board, viewer } = await loadBoard();
+  const { board, viewer, now } = await loadBoard();
   const cost = await loadCostData();
 
   if (!board) {
@@ -37,14 +42,30 @@ export default async function HomePage() {
     // next steps to offer has to come from the guan list instead.
     const { guans } = await loadOrganizerGuans();
 
+    // Closing a round empties this screen, so this is where the way back from an
+    // accidental close has to be — the round it points at is linked from nowhere
+    // else. Null unless it was closed within the last few hours.
+    const reopenable = guans.length > 0 ? await loadReopenableSession(now) : null;
+
     return guans.length > 0 ? (
       <EmptyState
         title="ยังไม่มีรอบเล่นที่เปิดอยู่"
-        detail="เปิดรอบใหม่แล้วทุกอย่างของคืนนี้ — เช็คอิน คิว ค่าลูก ยอดเงิน — จะมารวมอยู่ที่หน้านี้"
+        detail={
+          reopenable
+            ? `เปิดรอบใหม่ได้เลย — หรือถ้าเพิ่งกดปิดรอบ ${sessionHeadline(reopenable.startsAt, reopenable.endsAt)} ไปโดยไม่ตั้งใจ เปิดกลับได้`
+            : "เปิดรอบใหม่แล้วทุกอย่างของคืนนี้ — เช็คอิน คิว ค่าลูก ยอดเงิน — จะมารวมอยู่ที่หน้านี้"
+        }
         action={
-          <Link href="/new-session" className={primaryButton}>
-            เปิดรอบ
-          </Link>
+          <div className="flex flex-wrap justify-center gap-2.5">
+            <Link href="/new-session" className={primaryButton}>
+              เปิดรอบ
+            </Link>
+            {reopenable ? (
+              <Link href={`/session/${reopenable.id}`} className={ghostButton}>
+                เปิดรอบที่เพิ่งปิดกลับ
+              </Link>
+            ) : null}
+          </div>
         }
       />
     ) : (
@@ -79,6 +100,17 @@ export default async function HomePage() {
             <span className="font-mono text-[10px] tracking-[0.12em] text-accent">
               {playing ? "LIVE · กำลังเล่น" : "เปิดรอบแล้ว · ยังไม่มีใครลงคอร์ท"}
             </span>
+            {/* The round's own settings are edited from the round, not from a
+                menu — the reason to change them ("เขาเลื่อนเวลาเป็นสามทุ่ม")
+                always arrives while looking at this card. */}
+            {isOrganizer ? (
+              <Link
+                href={`/session/${session.id}`}
+                className="ml-auto text-[11.5px] font-semibold text-muted transition-colors hover:text-accent"
+              >
+                แก้ไขรอบ
+              </Link>
+            ) : null}
           </div>
           <h1 className="text-[21px] leading-tight font-bold">
             {sessionHeadline(session.startsAt, session.endsAt)}

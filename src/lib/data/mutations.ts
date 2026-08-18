@@ -25,6 +25,7 @@ import { PREVIEW_ROLE_COOKIE, type PreviewRole } from "@/lib/data/viewer";
 import {
   validateGuanDraft,
   validateSessionDraft,
+  validateSessionEdit,
   type FieldErrors,
 } from "@/lib/domain/drafts";
 import { parseInviteCode } from "@/lib/domain/invite";
@@ -42,6 +43,11 @@ function revalidateSession(): void {
   for (const path of ["/", "/checkin", "/queue", "/shuttle", "/money", "/settle"]) {
     revalidatePath(path);
   }
+
+  // The manage screen counts the matches still on court to decide whether the
+  // round can be closed, so ending one has to reach it too. A dynamic segment
+  // needs the route pattern and the `page` type rather than a literal path.
+  revalidatePath("/session/[id]", "page");
 }
 
 /**
@@ -470,6 +476,186 @@ export async function createSession(
 
   revalidateSession();
   redirect("/");
+}
+
+/**
+ * Change a round that is already running (FR-2).
+ *
+ * The same validator as opening one, because a round edited past the rules the
+ * create form enforces is a round the cost engine refuses at settle-up — a
+ * buffet session whose rate is cleared at 21:00 breaks the money screen just as
+ * completely as one that never had a rate.
+ *
+ * `guan_id` is not in the update. It is not on the form either, but a Server
+ * Action receives whatever is posted to it, so the column that decides which
+ * guan's members can see this round is simply never written here.
+ */
+export async function updateSession(
+  _previous: FormState | null,
+  form: FormData,
+): Promise<FormState> {
+  if (!hasSupabaseConfig) return NO_SUPABASE;
+
+  const draft = validateSessionEdit({
+    sessionId: field(form, "sessionId"),
+    venue: field(form, "venue"),
+    startsAtLocal: field(form, "startsAtLocal"),
+    endsAtLocal: field(form, "endsAtLocal"),
+    tzOffsetMinutes: field(form, "tzOffsetMinutes"),
+    courtCount: field(form, "courtCount"),
+    courtRate: field(form, "courtRate"),
+    capacity: field(form, "capacity"),
+    splitMode: field(form, "splitMode"),
+    buffetRate: field(form, "buffetRate"),
+    womenRate: field(form, "womenRate"),
+    perGameRate: field(form, "perGameRate"),
+    shuttlesIncludedPerMatch: field(form, "shuttlesIncludedPerMatch"),
+  });
+
+  if (!draft.ok) return { errors: draft.errors };
+
+  const s = draft.value;
+  await requireOrganizer(s.sessionId);
+
+  const supabase = await getSupabaseServerClient();
+  const { data, error } = await supabase
+    .from("sessions")
+    .update({
+      venue: s.venue,
+      starts_at: s.startsAt,
+      ends_at: s.endsAt,
+      court_count: s.courtCount,
+      court_rate: s.courtRate,
+      capacity: s.capacity,
+      split_mode: s.splitMode,
+      buffet_rate: s.buffetRate,
+      women_rate: s.womenRate,
+      per_game_rate: s.perGameRate,
+      shuttles_included_per_match: s.shuttlesIncludedPerMatch,
+    })
+    .eq("id", s.sessionId)
+    .select("id, closed_at");
+
+  if (error) return formError(`แก้ไขรอบไม่สำเร็จ: ${error.message}`);
+
+  // `select` on the way out is what turns the update into something that can
+  // report failure. Without it an update RLS hid every row from comes back as a
+  // success, and the organizer is told the round was saved while nothing moved.
+  const saved = data?.[0];
+  if (!saved) {
+    return formError("แก้ไขรอบไม่สำเร็จ: ไม่พบรอบนี้ หรือคุณไม่มีสิทธิ์แก้");
+  }
+
+  revalidateSession();
+  revalidatePath(`/session/${s.sessionId}`);
+
+  // Home shows the round that was just edited — unless it is closed, in which
+  // case home shows nothing and the way back to this round is the page it was
+  // edited from.
+  redirect(saved.closed_at === null ? "/" : `/session/${s.sessionId}`);
+}
+
+/**
+ * Close a round (FR-2).
+ *
+ * A closed round stops being the one every screen opens on — `closed_at` is what
+ * `fetchCurrentSession` filters by — so this is how next week's round becomes
+ * the current one instead of last week's hanging around forever.
+ *
+ * It refuses while a court is still occupied. Closing mid-match leaves matches
+ * that can never be ended attached to a round nothing links to any more, and the
+ * shuttles logged against them never reach anyone's bill. Ending the matches
+ * first is one screen away, and the refusal says so.
+ */
+export async function closeSession(sessionId: string): Promise<void> {
+  await requireOrganizer(sessionId);
+
+  const supabase = await getSupabaseServerClient();
+
+  const { data: live, error: liveError } = await supabase
+    .from("matches")
+    .select("id")
+    .eq("session_id", sessionId)
+    .in("status", ["playing", "queued"]);
+
+  if (liveError) fail("ปิดรอบ", liveError.message);
+  if (live && live.length > 0) {
+    fail(
+      "ปิดรอบ",
+      `ยังมีแมตช์ที่ยังไม่จบอยู่ ${live.length} แมตช์ — จบให้ครบที่หน้ากระดานคิวก่อน`,
+    );
+  }
+
+  const { data, error } = await supabase
+    .from("sessions")
+    .update({ closed_at: new Date().toISOString() })
+    .eq("id", sessionId)
+    .is("closed_at", null)
+    .select("id");
+
+  if (error) fail("ปิดรอบ", error.message);
+
+  // Zero rows here means the round was already closed, not that the write was
+  // refused — `requireOrganizer` above has already made refusal loud. A second
+  // press is the same outcome as the first, so it is not an error; re-stamping
+  // `closed_at` would only move the round out of the undo window below.
+  void data;
+
+  revalidateSession();
+  revalidatePath(`/session/${sessionId}`);
+}
+
+/**
+ * Undo a close.
+ *
+ * Closing is the one action that removes a round from every screen at once, and
+ * it gets pressed on a phone at the side of a court, so it has to be reversible.
+ * The home screen only offers this for a few hours after the fact — but that is
+ * a decision about what to *offer*, not what is allowed, because reopening is
+ * itself reversible by closing again.
+ *
+ * What it does refuse is reopening a round that would not become the current one
+ * anyway. `fetchCurrentSession` takes the latest open round, so with a newer one
+ * already open this would be a button that reports success and changes nothing
+ * on screen.
+ */
+export async function reopenSession(sessionId: string): Promise<void> {
+  await requireOrganizer(sessionId);
+
+  const supabase = await getSupabaseServerClient();
+
+  const { data: target, error: targetError } = await supabase
+    .from("sessions")
+    .select("starts_at")
+    .eq("id", sessionId)
+    .maybeSingle();
+
+  if (targetError) fail("เปิดรอบกลับ", targetError.message);
+  if (!target) fail("เปิดรอบกลับ", "ไม่พบรอบนี้");
+
+  const { data: newer, error: newerError } = await supabase
+    .from("sessions")
+    .select("id")
+    .is("closed_at", null)
+    // `gte`, not `gt`: two rounds starting at the same instant is a tie this
+    // cannot break, and it cannot match the target itself — that one is closed.
+    .gte("starts_at", target.starts_at)
+    .limit(1);
+
+  if (newerError) fail("เปิดรอบกลับ", newerError.message);
+  if (newer && newer.length > 0) {
+    fail("เปิดรอบกลับ", "มีรอบที่เปิดอยู่และใหม่กว่ารอบนี้ — ปิดรอบนั้นก่อน");
+  }
+
+  const { error } = await supabase
+    .from("sessions")
+    .update({ closed_at: null })
+    .eq("id", sessionId);
+
+  if (error) fail("เปิดรอบกลับ", error.message);
+
+  revalidateSession();
+  revalidatePath(`/session/${sessionId}`);
 }
 
 /**

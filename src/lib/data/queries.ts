@@ -130,6 +130,32 @@ export async function fetchCurrentSession(
   return data ? toSessionView(data as unknown as SessionQueryRow) : null;
 }
 
+/**
+ * The last round that was closed, for the undo on the empty home screen.
+ *
+ * Closing is the only action in the app that makes a round disappear from every
+ * screen at once, and a guan closes one while standing at the net with a phone
+ * in one hand. Without this read there is no way back — the round still exists,
+ * but nothing links to it. Whether it is recent enough to offer is the caller's
+ * question, not this one's.
+ */
+export async function fetchLastClosedSession(
+  supabase: Client,
+): Promise<SessionView | null> {
+  const { data, error } = await supabase
+    .from("sessions")
+    .select(SESSION_SELECT)
+    .not("closed_at", "is", null)
+    .order("closed_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`โหลดรอบที่ปิดไปไม่สำเร็จ: ${error.message}`);
+  }
+  return data ? toSessionView(data as unknown as SessionQueryRow) : null;
+}
+
 export async function fetchSessionById(
   supabase: Client,
   sessionId: string,
@@ -144,6 +170,28 @@ export async function fetchSessionById(
     throw new Error(`โหลดรอบเล่นไม่สำเร็จ: ${error.message}`);
   }
   return data ? toSessionView(data as unknown as SessionQueryRow) : null;
+}
+
+/**
+ * How many matches are still on court, which is what stops a round being closed.
+ *
+ * `queued` counts as unfinished alongside `playing`: the organizer has already
+ * arranged that match and it holds its court until someone ends it.
+ */
+export async function fetchLiveMatchCount(
+  supabase: Client,
+  sessionId: string,
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("matches")
+    .select("id", { count: "exact", head: true })
+    .eq("session_id", sessionId)
+    .in("status", ["playing", "queued"]);
+
+  if (error) {
+    throw new Error(`นับแมตช์ที่ยังไม่จบไม่สำเร็จ: ${error.message}`);
+  }
+  return count ?? 0;
 }
 
 async function fetchParticipants(
