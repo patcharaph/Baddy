@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isoToLocalDateTime,
   localDateTimeToIso,
   validateGuanDraft,
   validateSessionDraft,
+  validateSessionEdit,
   type DraftResult,
   type FieldErrors,
   type RawSessionDraft,
+  type RawSessionEdit,
 } from "./drafts";
 
 /** Bangkok: UTC+7, so getTimezoneOffset() reports -420. */
@@ -284,5 +287,129 @@ describe("validateSessionDraft", () => {
       "splitMode",
       "startsAtLocal",
     ]);
+  });
+});
+
+describe("isoToLocalDateTime", () => {
+  it("is the inverse of localDateTimeToIso", () => {
+    expect(isoToLocalDateTime("2026-08-18T12:00:00.000Z", -420)).toBe(
+      "2026-08-18T19:00",
+    );
+  });
+
+  it("round-trips every offset the form can report", () => {
+    for (const offset of [-720, -420, -330, 0, 300, 720]) {
+      const iso = localDateTimeToIso("2026-08-18T19:00", offset);
+      expect(iso).not.toBeNull();
+      expect(isoToLocalDateTime(iso as string, offset)).toBe("2026-08-18T19:00");
+    }
+  });
+
+  it("crosses the date line rather than clamping to the same day", () => {
+    // 00:30 UTC is the previous evening in a zone behind UTC.
+    expect(isoToLocalDateTime("2026-08-19T00:30:00.000Z", 300)).toBe(
+      "2026-08-18T19:30",
+    );
+  });
+
+  it("drops the seconds a stored instant carries", () => {
+    expect(isoToLocalDateTime("2026-08-18T12:00:45.000Z", -420)).toBe(
+      "2026-08-18T19:00",
+    );
+  });
+
+  it("refuses an instant it cannot parse", () => {
+    expect(isoToLocalDateTime("ไม่ใช่เวลา", -420)).toBeNull();
+  });
+
+  it("refuses an offset no timezone has", () => {
+    expect(isoToLocalDateTime("2026-08-18T12:00:00.000Z", 15 * 60)).toBeNull();
+    expect(isoToLocalDateTime("2026-08-18T12:00:00.000Z", NaN)).toBeNull();
+  });
+});
+
+describe("validateSessionEdit", () => {
+  function editForm(overrides: RawSessionEdit = {}): RawSessionEdit {
+    return {
+      sessionId: "session-1",
+      startsAtLocal: "2026-08-18T19:00",
+      tzOffsetMinutes: BKK,
+      courtCount: "2",
+      courtRate: "600",
+      splitMode: "buffet",
+      buffetRate: "120",
+      ...overrides,
+    };
+  }
+
+  it("accepts the same round the create form would have accepted", () => {
+    const result = validateSessionEdit(editForm());
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && result.value).toMatchObject({
+      sessionId: "session-1",
+      startsAt: "2026-08-18T12:00:00.000Z",
+      courtCount: 2,
+      courtRate: 600,
+      splitMode: "buffet",
+      buffetRate: 120,
+    });
+  });
+
+  it("has no guan on it — an edit cannot move a round between guans", () => {
+    const result = validateSessionEdit(
+      editForm({ guanId: "another-guan" } as RawSessionEdit),
+    );
+
+    expect(result.ok).toBe(true);
+    expect(result.ok && "guanId" in result.value).toBe(false);
+  });
+
+  it("needs to know which round it is editing", () => {
+    expect(errorsOf(validateSessionEdit(editForm({ sessionId: "" })))).toHaveProperty(
+      "sessionId",
+    );
+  });
+
+  it("still refuses to clear the rate the chosen mode needs", () => {
+    // The failure this prevents happens at settle-up, not here: a buffet round
+    // whose rate is edited away is a money screen that cannot compute at 23:00.
+    expect(
+      errorsOf(validateSessionEdit(editForm({ buffetRate: "" }))),
+    ).toHaveProperty("buffetRate");
+
+    expect(
+      errorsOf(
+        validateSessionEdit(editForm({ splitMode: "per_game", perGameRate: "" })),
+      ),
+    ).toHaveProperty("perGameRate");
+  });
+
+  it("still refuses a round with no timezone behind its times", () => {
+    expect(
+      errorsOf(validateSessionEdit(editForm({ tzOffsetMinutes: null }))),
+    ).toHaveProperty("tzOffsetMinutes");
+  });
+
+  it("still refuses an end time before the start", () => {
+    expect(
+      errorsOf(validateSessionEdit(editForm({ endsAtLocal: "2026-08-18T18:00" }))),
+    ).toHaveProperty("endsAtLocal");
+  });
+
+  it("drops a women's rate when the mode is no longer buffet", () => {
+    const result = validateSessionEdit(
+      editForm({ splitMode: "even", womenRate: "200" }),
+    );
+
+    expect(result.ok && result.value.womenRate).toBeNull();
+  });
+
+  it("allows a capacity below the number already checked in", () => {
+    // Nobody is removed by this — `placeJoiner` sends the *next* arrival to the
+    // waitlist. The validator has no board to check against and should not
+    // pretend otherwise.
+    const result = validateSessionEdit(editForm({ capacity: "1" }));
+    expect(result.ok && result.value.capacity).toBe(1);
   });
 });

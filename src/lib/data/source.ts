@@ -16,10 +16,13 @@ import {
   fetchBoard,
   fetchCurrentSession,
   fetchInvitePreview,
+  fetchLastClosedSession,
+  fetchLiveMatchCount,
   fetchMyGuans,
+  fetchSessionById,
   fetchSessionCostData,
 } from "./queries";
-import type { BoardView } from "./types";
+import type { BoardView, SessionView } from "./types";
 import { resolveViewer, type Viewer } from "./viewer";
 import type {
   GuanMembershipView,
@@ -258,3 +261,86 @@ export const loadOrganizerGuans = cache(async (): Promise<{
   const { kind, guans } = await loadProfile();
   return { kind, guans: guans.filter((g) => g.role === "organizer") };
 });
+
+export interface ManageSessionResult {
+  kind: SourceKind;
+  session: SessionView | null;
+  viewer: Viewer;
+  /** Matches still holding a court. A round with any of these cannot be closed. */
+  liveMatchCount: number;
+}
+
+/**
+ * One round, by id, for the screen that edits and closes it (FR-2).
+ *
+ * By id rather than "the current one" because the round this screen edits is
+ * sometimes a closed one — reopening a round nothing else links to any more is
+ * the whole reason the id is in the URL.
+ *
+ * Not `cache`d: unlike the board, this is read once per request by one page.
+ */
+export async function loadManageSession(
+  sessionId: string,
+): Promise<ManageSessionResult> {
+  if (!hasSupabaseConfig) {
+    const sample = SAMPLE_BOARD.session;
+    return {
+      kind: "sample",
+      session: sessionId === sample.id ? sample : null,
+      viewer: await resolveViewer(null),
+      liveMatchCount: SAMPLE_BOARD.courts.length,
+    };
+  }
+
+  const supabase = await getReadClient();
+  const session = await fetchSessionById(supabase, sessionId);
+  if (!session) {
+    return {
+      kind: "empty",
+      session: null,
+      viewer: await resolveViewer(null),
+      liveMatchCount: 0,
+    };
+  }
+
+  const [viewer, liveMatchCount] = await Promise.all([
+    resolveViewer(session.guanId),
+    fetchLiveMatchCount(supabase, session.id),
+  ]);
+
+  return { kind: "live", session, viewer, liveMatchCount };
+}
+
+/**
+ * How long after closing a round the home screen still offers to undo it.
+ *
+ * Long enough to cover "closed it while people were still packing up and
+ * realised on the drive home", short enough that next week's empty screen is not
+ * still advertising last week's round as a thing to reopen.
+ */
+export const REOPEN_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+/**
+ * The round the empty home screen offers to reopen, if there is one.
+ *
+ * Null unless the last closed round was closed inside `REOPEN_WINDOW_MS` and the
+ * viewer organizes the guan it belongs to — this is an undo for the person who
+ * pressed the button, not a history screen for everyone else.
+ */
+export async function loadReopenableSession(
+  now: number,
+): Promise<SessionView | null> {
+  if (!hasSupabaseConfig) return null;
+
+  const supabase = await getReadClient();
+  const session = await fetchLastClosedSession(supabase);
+  if (!session?.closedAt) return null;
+
+  const closedAt = Date.parse(session.closedAt);
+  if (!Number.isFinite(closedAt) || now - closedAt > REOPEN_WINDOW_MS) {
+    return null;
+  }
+
+  const viewer = await resolveViewer(session.guanId);
+  return viewer.role === "organizer" ? session : null;
+}

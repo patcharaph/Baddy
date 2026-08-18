@@ -114,6 +114,32 @@ export function localDateTimeToIso(
   return new Date(naiveMs + tzOffsetMinutes * 60_000).toISOString();
 }
 
+/**
+ * The inverse, for filling the edit form with the round it is editing.
+ *
+ * A stored instant cannot be handed to `datetime-local` as-is, and the zone it
+ * has to be rendered in is the same one the form will submit against — the
+ * browser's. Anything else round-trips a round the organizer did not touch into
+ * a different time: open the form, press save, and the round moves.
+ */
+export function isoToLocalDateTime(
+  iso: string,
+  tzOffsetMinutes: number,
+): string | null {
+  const ms = Date.parse(iso);
+  if (!Number.isFinite(ms)) return null;
+  if (!Number.isFinite(tzOffsetMinutes)) return null;
+  if (Math.abs(tzOffsetMinutes) > 14 * 60) return null;
+
+  const local = new Date(ms - tzOffsetMinutes * 60_000);
+  const pad = (n: number, width = 2) => String(n).padStart(width, "0");
+
+  return (
+    `${pad(local.getUTCFullYear(), 4)}-${pad(local.getUTCMonth() + 1)}` +
+    `-${pad(local.getUTCDate())}T${pad(local.getUTCHours())}:${pad(local.getUTCMinutes())}`
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Guan
 // ---------------------------------------------------------------------------
@@ -173,8 +199,15 @@ export function validateGuanDraft(raw: RawGuanDraft): DraftResult<GuanDraft> {
 // Session
 // ---------------------------------------------------------------------------
 
-export interface SessionDraft {
-  guanId: string;
+/**
+ * Everything about a round that a form can set.
+ *
+ * Shared by opening a round and editing one, because they are the same numbers
+ * asked for twice. The guan is not in here: creating picks one, editing may not
+ * change it — moving a round to another guan would leave its participants,
+ * matches and shuttle logs behind in the old one.
+ */
+export interface SessionSettings {
   venue: string | null;
   startsAt: string;
   endsAt: string | null;
@@ -188,8 +221,15 @@ export interface SessionDraft {
   shuttlesIncludedPerMatch: number;
 }
 
-export interface RawSessionDraft {
-  guanId?: string | null;
+export interface SessionDraft extends SessionSettings {
+  guanId: string;
+}
+
+export interface SessionEdit extends SessionSettings {
+  sessionId: string;
+}
+
+export interface RawSessionSettings {
   venue?: string | null;
   /** `datetime-local` value, e.g. `2026-08-18T19:00`. */
   startsAtLocal?: string | null;
@@ -206,12 +246,25 @@ export interface RawSessionDraft {
   shuttlesIncludedPerMatch?: string | null;
 }
 
-export function validateSessionDraft(raw: RawSessionDraft): DraftResult<SessionDraft> {
-  const errors: FieldErrors = {};
+export interface RawSessionDraft extends RawSessionSettings {
+  guanId?: string | null;
+}
 
-  const guanId = text(raw.guanId);
-  if (guanId === "") errors.guanId = "ยังไม่ได้เลือกก๊วน";
+export interface RawSessionEdit extends RawSessionSettings {
+  sessionId?: string | null;
+}
 
+/**
+ * The shared body of both session validators.
+ *
+ * Writes into the caller's `errors` and returns null once anything is wrong, so
+ * neither caller has to know which of the eleven fields failed — only whether it
+ * has a settings object to build a row from.
+ */
+function validateSessionSettings(
+  raw: RawSessionSettings,
+  errors: FieldErrors,
+): SessionSettings | null {
   // No silent default. A missing offset used to mean "assume UTC", and the
   // failure that produces is a round stored seven hours off with every field on
   // the form looking correct — the kind of bug nobody reports as a bug.
@@ -283,7 +336,7 @@ export function validateSessionDraft(raw: RawSessionDraft): DraftResult<SessionD
   if (splitMode === null) errors.splitMode = "ต้องเลือกวิธีหารเงิน";
 
   const optionalRate = (
-    key: keyof RawSessionDraft & string,
+    key: keyof RawSessionSettings & string,
     label: string,
   ): number | null => {
     if (text(raw[key]) === "") return null;
@@ -324,33 +377,73 @@ export function validateSessionDraft(raw: RawSessionDraft): DraftResult<SessionD
     }
   }
 
-  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  if (Object.keys(errors).length > 0) return null;
 
   // Unreachable: both of these push an error above. Kept as a real check rather
   // than asserted away, because an assertion is a comment that stops being true
   // the moment the checks above are edited.
   if (startsAt === null || splitMode === null) {
-    return { ok: false, errors: { splitMode: "ข้อมูลรอบไม่ครบ" } };
+    errors.splitMode = "ข้อมูลรอบไม่ครบ";
+    return null;
   }
 
   return {
-    ok: true,
-    value: {
-      guanId,
-      venue: optionalText(raw.venue),
-      startsAt,
-      endsAt,
-      courtCount,
-      courtRate,
-      capacity,
-      splitMode,
-      buffetRate,
-      // A women's rate only means anything in buffet mode, where the engine
-      // reads it. Carrying it into the other two would leave a number on the row
-      // that nothing uses and the next reader has to explain.
-      womenRate: splitMode === "buffet" ? womenRate : null,
-      perGameRate,
-      shuttlesIncludedPerMatch,
-    },
+    venue: optionalText(raw.venue),
+    startsAt,
+    endsAt,
+    courtCount,
+    courtRate,
+    capacity,
+    splitMode,
+    buffetRate,
+    // A women's rate only means anything in buffet mode, where the engine reads
+    // it. Carrying it into the other two would leave a number on the row that
+    // nothing uses and the next reader has to explain.
+    womenRate: splitMode === "buffet" ? womenRate : null,
+    perGameRate,
+    shuttlesIncludedPerMatch,
   };
+}
+
+/** Opening a round (US-2.1). */
+export function validateSessionDraft(
+  raw: RawSessionDraft,
+): DraftResult<SessionDraft> {
+  const errors: FieldErrors = {};
+
+  const guanId = text(raw.guanId);
+  if (guanId === "") errors.guanId = "ยังไม่ได้เลือกก๊วน";
+
+  const settings = validateSessionSettings(raw, errors);
+  if (settings === null) return { ok: false, errors };
+
+  return { ok: true, value: { guanId, ...settings } };
+}
+
+/**
+ * Editing a round that already exists (FR-2).
+ *
+ * Same rules as opening one, and deliberately so: a round edited into a state
+ * the create form would have refused is a round the cost engine refuses at
+ * settle-up. The only difference is which id has to be present.
+ *
+ * What it cannot see is the round's own history — that reducing the capacity
+ * below the number already checked in, or the court count below a court in play,
+ * is allowed here. Neither removes anyone: `placeJoiner` sends the *next* person
+ * to the waitlist, and `toLiveCourts` keeps rendering a match on court 3 whether
+ * or not court 3 still exists. Those checks need the board, so they do not
+ * belong in a pure validator.
+ */
+export function validateSessionEdit(
+  raw: RawSessionEdit,
+): DraftResult<SessionEdit> {
+  const errors: FieldErrors = {};
+
+  const sessionId = text(raw.sessionId);
+  if (sessionId === "") errors.sessionId = "ไม่รู้ว่าจะแก้รอบไหน";
+
+  const settings = validateSessionSettings(raw, errors);
+  if (settings === null) return { ok: false, errors };
+
+  return { ok: true, value: { sessionId, ...settings } };
 }
