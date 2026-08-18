@@ -1,34 +1,29 @@
-import type { SourceKind } from "@/lib/data/source";
+import type { ReactNode } from "react";
 
 /**
- * Says out loud when the screen is not showing real data.
+ * What a screen shows when there is nothing to show.
  *
- * Sample numbers that look real are how a demo turns into a bug report, so the
- * banner is deliberately hard to miss and disappears entirely once a live
- * session is connected.
+ * Every screen hangs off "the round that is open right now", so all of them need
+ * the same answer when no round is open — and it has to say what to do next, not
+ * just that the list is empty.
  */
-export function SourceNote({ kind }: { kind: SourceKind }) {
-  if (kind !== "sample") return null;
-
-  return (
-    <p className="mb-3 rounded-xl bg-pending-bg px-3 py-2 text-[11px] leading-relaxed text-pending">
-      ข้อมูลตัวอย่าง — ยังไม่ได้เชื่อม Supabase (ตั้งค่าใน <code>.env.local</code>)
-    </p>
-  );
-}
-
 export function EmptyState({
   title,
   detail,
+  action,
 }: {
   title: string;
   detail: string;
+  action?: ReactNode;
 }) {
   return (
     <main className="px-4 pt-10">
-      <div className="rounded-2xl border border-dashed border-line bg-surface px-4 py-10 text-center">
-        <div className="font-display text-[15px] font-semibold">{title}</div>
-        <p className="mt-1.5 text-[12.5px] text-muted">{detail}</p>
+      <div className="flex flex-col items-center gap-2 rounded-[20px] border border-dashed border-line px-5 py-12 text-center">
+        <div className="text-[15px] font-semibold">{title}</div>
+        <p className="text-[12.5px] leading-relaxed text-muted text-pretty">
+          {detail}
+        </p>
+        {action ? <div className="mt-2">{action}</div> : null}
       </div>
     </main>
   );

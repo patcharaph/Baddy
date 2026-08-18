@@ -282,6 +282,24 @@ export function computeCostShares(input: CostInput): CostResult {
   }
 }
 
+/**
+ * `computeCostShares`, with the "the organizer has not set a rate yet" case
+ * returned rather than thrown.
+ *
+ * That case is not exceptional — it is the normal state of a brand-new guan —
+ * and several screens show a total as one line among many, where an exception
+ * would take the whole screen down with it.
+ */
+export function tryComputeCostShares(
+  input: CostInput,
+): { ok: true; result: CostResult } | { ok: false; error: string } {
+  try {
+    return { ok: true, result: computeCostShares(input) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 /** Total already collected, for the "เก็บแล้ว" figure on the money screen. */
 export function collectedTotal(
   result: CostResult,

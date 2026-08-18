@@ -17,7 +17,9 @@ import type {
   ParticipantRow,
   PlayerView,
   QueueEntryView,
+  RosterEntryView,
   ShuttleLogRow,
+  ShuttleSummaryView,
 } from "./types";
 
 const AVATAR_COLORS = [
@@ -211,4 +213,102 @@ export function toWaitlist(participants: readonly ParticipantRow[]): PlayerView[
 
 export function countCheckedIn(participants: readonly ParticipantRow[]): number {
   return participants.filter((p) => p.status === "checked_in").length;
+}
+
+/** Status order on the check-in screen: who needs the organizer's attention first. */
+const ROSTER_ORDER: Record<ParticipantRow["status"], number> = {
+  waitlist: 0,
+  rsvp: 1,
+  checked_in: 2,
+  checked_out: 3,
+  cancelled: 4,
+};
+
+/**
+ * The order the check-in screen lists people in.
+ *
+ * Waitlisted players come first because they are the ones the organizer has to
+ * decide about; cancelled players come last because they are only there so the
+ * list does not silently lose someone. Everyone else is in arrival order, so the
+ * middle of the list reads like the door.
+ *
+ * Exported so the sample board can be ordered by the same rule it will be
+ * ordered by once it is real data.
+ */
+export function sortRoster(entries: RosterEntryView[]): RosterEntryView[] {
+  return [...entries].sort((a, b) => {
+    const byStatus = ROSTER_ORDER[a.status] - ROSTER_ORDER[b.status];
+    if (byStatus !== 0) return byStatus;
+
+    if (a.status === "waitlist" && b.status === "waitlist") {
+      return (
+        (a.waitlistPosition ?? Number.MAX_SAFE_INTEGER) -
+        (b.waitlistPosition ?? Number.MAX_SAFE_INTEGER)
+      );
+    }
+    return (
+      (a.checkInAt ?? Number.MAX_SAFE_INTEGER) -
+      (b.checkInAt ?? Number.MAX_SAFE_INTEGER)
+    );
+  });
+}
+
+/** The whole session roster, ready for the check-in screen. */
+export function toRoster(
+  participants: readonly ParticipantRow[],
+): RosterEntryView[] {
+  const entries = participants
+    .map((p) => {
+      const player = toPlayerView(p);
+      if (!player) return null;
+
+      return {
+        player,
+        status: p.status,
+        checkInAt: toEpoch(p.check_in_at),
+        waitlistPosition: p.waitlist_position,
+      };
+    })
+    .filter((e): e is RosterEntryView => e !== null);
+
+  return sortRoster(entries);
+}
+
+/** Default shuttle price when a session has not logged one yet (PRD FR-6). */
+export const DEFAULT_SHUTTLE_PRICE = 60;
+
+/**
+ * The shuttle tally, plus the tail of the log.
+ *
+ * Match numbers are derived from when matches started rather than stored, so a
+ * log line can say "แมตช์ที่ 9" — the number the organizer counted out loud —
+ * without a column that could disagree with the match list.
+ */
+export function toShuttleSummary(
+  logs: readonly ShuttleLogRow[],
+  matches: readonly MatchRow[],
+  limit = 6,
+): ShuttleSummaryView {
+  const matchNoById = new Map<string, number>();
+  matches
+    .filter((m) => m.started_at !== null)
+    .sort((a, b) => (toEpoch(a.started_at) ?? 0) - (toEpoch(b.started_at) ?? 0))
+    .forEach((m, i) => matchNoById.set(m.id, i + 1));
+
+  const sorted = [...logs].sort(
+    (a, b) => new Date(b.logged_at).getTime() - new Date(a.logged_at).getTime(),
+  );
+
+  return {
+    count: logs.reduce((sum, l) => sum + l.count, 0),
+    // The most recently logged price is what the next `+1` should cost.
+    unitPrice: sorted[0]?.unit_price ?? DEFAULT_SHUTTLE_PRICE,
+    recent: sorted.slice(0, limit).map((l) => ({
+      id: l.id,
+      loggedAt: new Date(l.logged_at).getTime(),
+      courtNo: l.court_no,
+      matchNo: l.match_id ? (matchNoById.get(l.match_id) ?? null) : null,
+      count: l.count,
+    })),
+  };
 }

@@ -1,23 +1,24 @@
 import type { Metadata, Viewport } from "next";
-import { Anuphan, IBM_Plex_Mono, IBM_Plex_Sans_Thai } from "next/font/google";
-import "./globals.css";
+import { IBM_Plex_Sans_Thai, JetBrains_Mono } from "next/font/google";
 
-const anuphan = Anuphan({
-  variable: "--font-anuphan",
-  subsets: ["thai", "latin"],
-  weight: ["500", "600", "700"],
-});
+import { getThemePreference, themeAttribute } from "@/lib/theme";
+
+import "./globals.css";
 
 const plexThai = IBM_Plex_Sans_Thai({
   variable: "--font-plex-thai",
   subsets: ["thai", "latin"],
-  weight: ["400", "500", "600"],
+  weight: ["400", "500", "600", "700"],
 });
 
-const plexMono = IBM_Plex_Mono({
-  variable: "--font-plex-mono",
+/**
+ * Every number the app shows — money, queue positions, court timers, shuttle
+ * counts — is set in mono so a column of them lines up and can be scanned.
+ */
+const jetbrains = JetBrains_Mono({
+  variable: "--font-jetbrains",
   subsets: ["latin"],
-  weight: ["500", "600"],
+  weight: ["400", "500", "700"],
 });
 
 export const metadata: Metadata = {
@@ -30,14 +31,25 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
-  themeColor: "#1b2547",
+  // Matches `--app` in each theme, so the browser chrome does not sit on a
+  // different ground than the page. Follows the OS rather than the in-app
+  // toggle: an override here would need the value at header time, and getting
+  // the status bar slightly wrong costs less than making every route dynamic.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#e7eae0" },
+    { media: "(prefers-color-scheme: dark)", color: "#08090b" },
+  ],
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default async function RootLayout({ children }: LayoutProps<"/">) {
+  const theme = await getThemePreference();
+
   return (
     <html
       lang="th"
-      className={`${anuphan.variable} ${plexThai.variable} ${plexMono.variable} h-full antialiased`}
+      // Absent unless the reader has chosen — see `themeAttribute`.
+      data-theme={themeAttribute(theme)}
+      className={`${plexThai.variable} ${jetbrains.variable} h-full antialiased`}
     >
       <body className="min-h-full">{children}</body>
     </html>

@@ -9,10 +9,12 @@ import {
   toLiveCourts,
   toQueueCandidates,
   toQueueEntries,
+  toRoster,
   toShuttleLogs,
+  toShuttleSummary,
   toWaitlist,
 } from "./mappers";
-import type { MatchRow, ParticipantRow } from "./types";
+import type { MatchRow, ParticipantRow, ShuttleLogRow } from "./types";
 
 const NOW = Date.UTC(2026, 9, 26, 14, 30, 0);
 const MINUTE = 60_000;
@@ -239,11 +241,118 @@ describe("toFinishedMatches", () => {
   });
 });
 
+function shuttleLog(
+  id: string,
+  overrides: Partial<ShuttleLogRow> = {},
+): ShuttleLogRow {
+  return {
+    id,
+    match_id: "m1",
+    court_no: 1,
+    logged_at: iso(30),
+    count: 1,
+    unit_price: 60,
+    ...overrides,
+  };
+}
+
 describe("toShuttleLogs", () => {
   it("maps to the cost engine's shape", () => {
-    expect(
-      toShuttleLogs([{ match_id: "m1", count: 2, unit_price: 60 }]),
-    ).toEqual([{ matchId: "m1", count: 2, unitPrice: 60 }]);
+    expect(toShuttleLogs([shuttleLog("s1", { count: 2 })])).toEqual([
+      { matchId: "m1", count: 2, unitPrice: 60 },
+    ]);
+  });
+});
+
+describe("toShuttleSummary", () => {
+  const matches = [
+    match("m1", 1, "done", ["a", "b"], { started_at: iso(60) }),
+    match("m2", 2, "done", ["c", "d"], { started_at: iso(40) }),
+    match("m3", 3, "playing", ["e", "f"], { started_at: iso(10) }),
+  ];
+
+  it("totals the count and numbers matches by when they started", () => {
+    const summary = toShuttleSummary(
+      [
+        shuttleLog("s1", { match_id: "m1", logged_at: iso(55) }),
+        shuttleLog("s2", { match_id: "m3", court_no: 3, logged_at: iso(5) }),
+        shuttleLog("s3", { match_id: "m2", court_no: 2, logged_at: iso(35), count: 2 }),
+      ],
+      matches,
+    );
+
+    expect(summary.count).toBe(4);
+    // Newest first, so the log reads like a feed.
+    expect(summary.recent.map((r) => r.id)).toEqual(["s2", "s3", "s1"]);
+    expect(summary.recent[0].matchNo).toBe(3);
+    expect(summary.recent[2].matchNo).toBe(1);
+  });
+
+  it("takes the unit price from the most recent log, not the first", () => {
+    const summary = toShuttleSummary(
+      [
+        shuttleLog("old", { logged_at: iso(60), unit_price: 60 }),
+        shuttleLog("new", { logged_at: iso(5), unit_price: 75 }),
+      ],
+      matches,
+    );
+
+    expect(summary.unitPrice).toBe(75);
+  });
+
+  it("falls back to the default price when nothing has been logged", () => {
+    expect(toShuttleSummary([], matches).unitPrice).toBe(60);
+  });
+
+  it("leaves matchNo null for a shuttle logged without a match", () => {
+    const summary = toShuttleSummary(
+      [shuttleLog("loose", { match_id: null, court_no: null })],
+      matches,
+    );
+
+    expect(summary.recent[0].matchNo).toBeNull();
+    expect(summary.recent[0].courtNo).toBeNull();
+  });
+});
+
+describe("toRoster", () => {
+  it("puts the people needing a decision first", () => {
+    const roster = toRoster([
+      participant("gone", { status: "checked_out" }),
+      participant("here", { check_in_at: iso(50) }),
+      participant("waiting", {
+        status: "waitlist",
+        waitlist_position: 2,
+        check_in_at: null,
+      }),
+      participant("waiting-first", {
+        status: "waitlist",
+        waitlist_position: 1,
+        check_in_at: null,
+      }),
+      participant("said-yes", { status: "rsvp", check_in_at: null }),
+    ]);
+
+    expect(roster.map((e) => e.player.id)).toEqual([
+      "waiting-first",
+      "waiting",
+      "said-yes",
+      "here",
+      "gone",
+    ]);
+  });
+
+  it("orders the people who are in by when they arrived", () => {
+    const roster = toRoster([
+      participant("late", { check_in_at: iso(10) }),
+      participant("early", { check_in_at: iso(90) }),
+    ]);
+
+    expect(roster.map((e) => e.player.id)).toEqual(["early", "late"]);
+  });
+
+  it("drops rows whose player row did not come back", () => {
+    expect(toRoster([participant("ghost", { players: null })])).toEqual([]);
   });
 });
 

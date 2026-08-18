@@ -7,7 +7,11 @@ Requirements และที่มาของทุกการตัดสิ�
 [User stories](./docs/line-guan-badminton-user-stories.md) ·
 [Technical requirements & ADR](./docs/line-guan-badminton-technical-req.md) ·
 [Marketing plan](./docs/line-guan-badminton-marketing-plan.md) ·
-[UI mockup](./docs/line-guan-badminton-ui-mockup.html)
+[ADR](./docs/line-guan-badminton-adr.md)
+
+หน้าจอทั้งหมดสร้างตาม LIFF prototype ใน
+[`docs/Mobile app design planning.zip`](./docs) — accent เขียวมะนาว `#C8FF3D`
+มีทั้งธีมมืดและสว่าง token อยู่ใน `src/app/globals.css` ที่เดียว
 
 ---
 
@@ -15,12 +19,13 @@ Requirements และที่มาของทุกการตัดสิ�
 
 ```bash
 npm install
-npm run dev          # http://localhost:3000 → /queue
+npm run dev          # http://localhost:3000
 ```
 
 รันได้เลยโดยไม่ต้องตั้งค่าอะไร — ถ้ายังไม่มี env จะใช้ข้อมูลตัวอย่างใน
 `src/lib/sample/session.ts` ซึ่งไหลผ่าน queue engine และ cost engine ตัวจริง
-(ไม่ใช่ตัวเลขที่ hardcode ไว้)
+(ไม่ใช่ตัวเลขที่ hardcode ไว้) และจะมีแถบ **SAMPLE DATA** ให้สลับดูระหว่าง
+มุมมองหัวหน้าก๊วนกับผู้เล่นได้ ทุกหน้าจอในดีไซน์แยกสองบทบาทนี้
 
 | คำสั่ง | ทำอะไร |
 |--------|--------|
@@ -34,7 +39,7 @@ npm run dev          # http://localhost:3000 → /queue
 
 ```bash
 cp .env.example .env.local     # แล้วกรอก URL + anon key + service role key
-npm run db:push                # apply supabase/migrations/0001_init.sql
+npm run db:push                # apply ทุกไฟล์ใน supabase/migrations/
 npm run db:seed                # ใส่รอบเล่นตัวอย่างลง DB จริง
 ```
 
@@ -55,17 +60,24 @@ npm run db:types
 ```
 src/
   app/
-    (tabs)/            3 แท็บตาม mockup — queue / money / profile
-  components/          UI ตาม design token ของ mockup
+    (tabs)/            7 หน้าจอตาม prototype + 2 หน้าฟอร์ม
+                       / (รอบวันนี้) · checkin · queue · shuttle
+                       money · settle · profile
+                       new-guan · new-session
+    join/[code]        หน้ารับลิงก์เชิญ — อยู่นอก shell เพราะยังไม่ได้เป็นสมาชิก
+  components/          UI primitives ตาม design token ใน globals.css
   lib/
-    domain/            ★ queue engine + cost engine (pure TS, มีเทสต์)
+    domain/            ★ queue engine + cost engine + กติกาเข้ารอบ
+                       + ลิงก์เชิญ + ตรวจฟอร์ม (pure TS, มีเทสต์ทั้งหมด)
     data/              ★ mappers (มีเทสต์) + queries + mutations + realtime
+    auth/              ตรวจ id token ของ LINE + guard ของ mutation
     supabase/          browser / server / admin client + types
     liff/              LIFF provider
     sample/            ข้อมูลตัวอย่าง รูปร่างเดียวกับที่ query คืนมา
 scripts/seed.ts        ใส่ข้อมูลตัวอย่างลง Supabase จริง
 supabase/
-  migrations/          schema + RLS + realtime
+  migrations/          0001 schema + RLS + realtime
+                       0002 สร้างก๊วน + ลิงก์เชิญ (security definer)
 docs/                  requirement ต้นทาง
 ```
 
@@ -81,9 +93,33 @@ lib/sample ────────┘
 `empty` (ต่อ Supabase แล้วแต่ยังไม่มีรอบเปิด), `sample` (ยังไม่ได้ตั้ง env)
 หน้าจอเห็นเป็น `BoardView` เหมือนกันหมด ไม่รู้ว่าข้อมูลมาจากไหน
 
+มันคืน `viewer` (`{ playerId, role }`) มาด้วยเสมอ — ดีไซน์แยกหัวหน้าก๊วนกับผู้เล่น
+ทุกหน้า การให้แต่ละหน้าไปเดาเอาเองคือทางที่ปุ่มของหัวหน้าก๊วนจะหลุดไปโผล่ฝั่งผู้เล่น
+บทบาทมาจาก `memberships.role` ตอนต่อ Supabase และมาจาก cookie ของแถบ preview
+ตอนใช้ข้อมูลตัวอย่าง (`data/viewer.ts`)
+
 **mappers อยู่แยกจาก queries เพราะทดสอบได้** — "ใครนับว่ารอคิวอยู่", "เล่นไปกี่เกม",
 "คอร์ทไหนว่าง" เป็น logic ที่พังได้ง่ายสุด จึงเขียนเป็น pure function แล้วเทสต์
-โดยไม่ต้องมี DB (ปัจจุบัน 80 เทสต์รวมทั้ง engine และ mapper)
+โดยไม่ต้องมี DB (ปัจจุบัน 169 เทสต์ ครอบ engine, mapper, ตัวตรวจ id token ของ LINE,
+ลิงก์เชิญ และการตรวจฟอร์มก่อนเป็น row)
+
+### ธีม (มืด / สว่าง)
+
+โค้ดหน้าจอ **ไม่มีสีดิบเลย** — ไม่มี `text-white/45`, ไม่มี hex ลอย ๆ มีแต่ token
+เชิงความหมาย (`bg-surface` `text-muted` `border-line` `text-accent` …) เพราะ
+`white/45` เป็น "ตัวหนังสือรอง" ได้แค่ในธีมเดียว อีกธีมมันหายไปเลย
+
+lime แตกเป็นสองบทบาท — `accent-fill` คือลายเซ็นแบรนด์ที่ใช้เป็น**พื้น** (อยู่รอดทั้ง
+สองธีมเพราะตัวหนังสือบนนั้นเกือบดำ) ส่วน `accent` คือ lime ที่ใช้เป็น**ตัวหนังสือ**
+ซึ่งต้องเข้มลงเป็นเขียวมะกอกบนพื้นสว่างถึงจะอ่านออก (คอนทราสต์ ≈ 5.9:1)
+
+ผู้ใช้เลือกได้ 3 แบบที่หน้าโปรไฟล์ — **ตามระบบ / สว่าง / มืด** เก็บใน cookie
+ไม่ใช่ localStorage เพราะ `<html data-theme>` ถูก render จาก server ถ้าใช้
+localStorage ต้องมี script บล็อกใน `<head>` กันจอกระพริบ ซึ่งใน webview ของ LINE
+จะกระพริบตอนที่ sheet กำลังเปิดพอดี
+
+- ไม่ได้เลือก → ไม่ใส่ attribute ปล่อยให้ `prefers-color-scheme` ตัดสิน
+- เลือกแล้ว → `data-theme="light|dark"` ชนะ media query
 
 ### Auth: LINE → Supabase
 
@@ -110,6 +146,103 @@ access/refresh token ลง httpOnly cookie โดยไม่ผ่านเบ
 โปรไฟล์ผูกด้วย `line_user_id` ไม่ใช่ auth user — คนที่ถูกเพิ่มเข้าก๊วนก่อนเคยเปิดแอป
 มี row อยู่แล้ว การ sign-in ครั้งแรกจะ claim row เดิม ไม่สร้างซ้ำจนประวัติหาย (ADR-2)
 
+**เปิดจากคอมก็เข้าได้** — ในแอป LINE ตัวตนเป็นของที่มีอยู่แล้ว เปิดที่อื่น LIFF จะหยุดที่
+`logged-out` ซึ่งเดิมเป็นทางตัน: RLS คืนค่าว่างนั้นถูกแล้ว แต่หน้าจอที่ได้อ่านเหมือน
+"ก๊วนว่าง" ไม่ใช่ "ยังไม่ได้เข้าสู่ระบบ" — `SignInBar` คือความต่างของสองอย่างนั้น
+สำหรับหัวหน้าก๊วนที่นั่งเก็บเงินหน้าคอร์ทด้วยโน้ตบุ๊ก
+
+มันไม่เด้งไป LINE Login เอง ปุ่มให้กดเท่านั้น เพราะ redirect แบบไม่บอกคือทางที่
+เครื่องที่ใช้ร่วมกันจะล็อกอินผิดคน และปุ่มออกจากระบบเรียก `DELETE /api/auth/line`
+ด้วย เพราะ `liff.logout()` ไม่แตะ httpOnly cookie ที่ route นี้เซ็ตไว้ — ในแอป LINE
+ซ่อนปุ่มนั้นไว้ ไม่งั้นจะค้างใน webview โดยไม่มีทางกลับเข้า
+
+`isInClient` แยกจาก "มี LIFF config" ด้วยเหตุผลเดียวกัน — บนคอมมี config ครบแต่ไม่มี
+หน้าต่างให้ปิด ปุ่ม ✕ จึงเคยโผล่มาแล้วกดไม่ได้อะไร
+
+### สิทธิ์ในการเขียน — RLS ยังเป็นเส้นจริง แต่การปฏิเสธต้องดัง
+
+`lib/auth/guard.ts` เช็คก่อนยิง write ทุกครั้ง **ไม่ใช่เพื่อ authorise** — RLS ทำหน้าที่นั้น
+อยู่แล้วและยังเป็นเส้นจริง ที่ต้องมีเพราะ policy ที่ซ่อน row ทำให้
+`update ... where id = ?` ที่ไม่มีสิทธิ์กลายเป็น "อัปเดต 0 แถว" ซึ่ง PostgREST
+รายงานว่า **สำเร็จ** ผู้เล่นที่เรียก `endMatch` ตรง ๆ จะได้ข้อความว่าแมตช์จบแล้ว
+ทั้งที่กระดานไม่ขยับ guard คือตัวที่เปลี่ยนความเงียบนั้นให้เป็นประโยคที่อ่านรู้เรื่อง
+
+- `requireOrganizer` / `requireOrganizerForMatch` — ปุ่มของหัวหน้าก๊วน
+- `requireSelfOrOrganizer` — สะท้อน policy `session_participants_update` กับ
+  `cost_shares_mark_own_paid` ถ้าสองอันนี้ไม่ตรงกัน **policy ชนะ** นั่นคือเหตุผล
+  ที่เก็บไว้ทั้งคู่
+- `requireCurrentPlayerId` — action ที่เขียน row ของ "ฉัน" ต้องตัดสินฝั่ง server ว่า
+  "ฉัน" คือใคร ไม่งั้นมันคือ endpoint สำหรับเพิ่มใครเข้าอะไรก็ได้
+
+### เข้ารอบเอง
+
+ผู้เล่นกดเข้ารอบที่เปิดอยู่ได้จากหน้า check-in โดยไม่ต้องรอหัวหน้าก๊วนเพิ่มให้
+กติกาการตัดสินว่าได้ที่นั่งหรือไปต่อคิวอยู่ใน `domain/join.ts` — pure function
+เหมือน engine ตัวอื่น: เต็มโควตาแล้วคือ waitlist ไม่ใช่การปฏิเสธ ต่อท้ายคนที่รออยู่ก่อน
+และโควตา 0 นับว่าเต็มเสมอ ตัว `placeJoiner` ไม่รู้จัก Supabase ส่วนการเลื่อนคิวอัตโนมัติ
+เมื่อมีคนถอน (US-2.4) ยังไม่ได้ทำ
+
+### สร้างก๊วน · ลิงก์เชิญ · เปิดรอบ (FR-1, FR-2)
+
+`0001` ให้คอลัมน์ `guans.invite_code` มาแต่ไม่มีอะไรใช้มันได้ และมีสองอย่างใน schema
+เดิมที่ขวางไม่ให้ลิงก์เชิญทำงานจริง — `0002` แก้ที่ต้นเหตุ ไม่ได้เลี่ยงในแอป
+
+**1. default เดิมเป็น base64** ซึ่งมี `+` กับ `/` — `/` ใน `/join/<code>` ไม่ใช่รหัสที่มี
+สแลช มันคือ *อีก route หนึ่ง* ตอนนี้ `generate_invite_code()` แปลงเป็น base64url
+(12 ตัวอักษร 72 บิต) และ migration ก็ mint ใหม่ให้ row ที่ได้รหัสจาก default เดิมไปแล้ว
+
+**2. `guans_select` คือ `is_guan_member(id)`** — แต่คนที่ถือลิงก์เชิญยัง *ไม่ได้* เป็น
+สมาชิก นั่นคือนิยามของคำเชิญ หน้า landing จึงอ่านชื่อก๊วนที่ตัวเองกำลังชวนเข้าไม่ได้
+
+ข้อ 2 **ไม่ใช่ policy ที่ควรผ่อน** — RLS ไม่เห็นว่า caller filter ด้วย `invite_code`
+ถ้าจะให้อ่านได้ต้องเขียน `using (true)` ซึ่งเท่ากับเปิดให้อ่านทั้งตาราง ทางที่เลือกคือ
+`security definer` function แคบ ๆ ที่ตอบคำถามเดียวและเล็งไปที่อื่นไม่ได้:
+
+| function | ตอบอะไร | ใครเรียกได้ |
+|----------|---------|-------------|
+| `guan_invite_preview(code)` | ชื่อ · สนาม · จำนวนสมาชิก | `anon` ด้วย |
+| `join_guan_by_invite(code)` | ใส่ membership ของ *ตัวเอง* | `authenticated` |
+| `create_guan(...)` | สร้างก๊วน + ตั้งตัวเองเป็นหัวหน้า | `authenticated` |
+| `rotate_invite_code(guan)` | mint รหัสใหม่ ล้มลิงก์เดิม | `authenticated` (เช็ค organizer ในตัว) |
+
+`guan_invite_preview` **ไม่ได้ `select *`** — คำเชิญบอกชื่อ สนาม และจำนวนคน พอให้รู้ว่า
+มาถูกก๊วน มันไม่บอกเบอร์พร้อมเพย์ของหัวหน้าก๊วน และเปิดให้ `anon` เรียกได้เพราะการ
+บังคับให้ล็อกอินก่อนจะได้เห็นว่าถูกชวนเข้าอะไร คือวิธีที่คำเชิญถูกเมิน
+
+`create_guan` เป็น function ไม่ใช่สอง insert จากแอป เพราะสองอันนั้นไม่เป็นอิสระต่อกัน —
+`guans_select` ต้องเป็นสมาชิกก่อน ถ้าแถว membership พลาด ก๊วนที่เพิ่งสร้างจะ**มองไม่เห็น
+แม้แต่โดยคนที่สร้าง** ไม่ใช่ error ที่เห็น กด retry หรือเก็บกวาดได้ ในฟังก์ชันมันเป็น
+transaction เดียว และ `owner_player_id` มาจาก session ไม่ใช่จาก argument — เชื่อ
+argument ก็คือเปิด endpoint ให้สร้างก๊วนที่มีเจ้าของเป็นคนอื่น
+
+`join_guan_by_invite` ใส่ `role = 'player'` เสมอ และ `on conflict do nothing` — กดลิงก์
+ซ้ำไม่ใช่ error และต้องไม่เป็นช่องเขียนทับ membership เดิม โดยเฉพาะการดึงหัวหน้าก๊วน
+กลับลงมาเป็นสมาชิก
+
+**ลิงก์คือ credential** จึงต้องมีทางยกเลิก `rotate_invite_code` คือทางนั้น ไม่งั้นรหัสที่
+วางผิดห้องแชทจะใช้ได้ตลอดไป และทางแก้เดียวคือลบก๊วน — และเพราะ Postgres ไม่มี
+column-level RLS `invite_code` จึงอ่านได้โดย**สมาชิกทุกคน** ไม่ใช่แค่หัวหน้า หน้าโปรไฟล์
+เลือกจะ*เสนอ*ลิงก์ให้แค่หัวหน้า แต่คำอธิบายที่ตรงความจริงคือ "สมาชิกอ่านได้"
+
+ลิงก์ที่แชร์เป็นรูปแบบ LIFF (`liff.line.me/<id>/join/<code>`) เมื่อมี `NEXT_PUBLIC_LIFF_ID`
+เพราะกดจากแชทแล้วเข้า webview ที่ล็อกอินอยู่แล้ว — ซึ่งเป็นขั้นตอนที่ FR-1 มีไว้เพื่อตัด
+ออก ถ้าไม่มี LIFF id จะ fallback เป็น origin ของแอปเอง (`lib/origin.ts` อ่านจาก request
+ไม่ใช่ env จึงไม่มี `NEXT_PUBLIC_APP_URL` ให้ลืมตั้งบน preview deploy)
+
+`parseInviteCode` รับทั้งรหัสเปล่าและ URL เต็ม ๆ เพราะคนแชร์*ลิงก์* ไม่ได้แชร์รหัส และ
+ลิงก์มาพร้อม scheme, host, liff id และบางทีมี `?openExternalBrowser=1` ต่อท้าย รหัสเป็น
+case-sensitive (base64url ใช้ทั้งสองเคส) จึง trim และตัดได้ แต่ห้าม lowercase
+
+**เปิดรอบแล้วบังคับเรตของโหมดที่เลือกทันที** — cost engine ไม่ยอมคำนวณถ้าไม่มีเรตอยู่แล้ว
+ต่างกันแค่ว่าจะปฏิเสธตอนนี้ ตอนที่หัวหน้าก๊วนกรอกฟอร์มอยู่ หรือตอนสามทุ่มหน้าคนที่ยืนรอ
+จ่ายเงิน (`domain/drafts.ts` สะท้อน `requireRate` ใน `cost-engine.ts` ตรง ๆ)
+
+และ **`datetime-local` ไม่มีเขตเวลา** — `new Date("2026-08-18T19:00")` ตีความตามเขตเวลา
+ของ *server* ก๊วนที่เล่น 19:00 ที่กรุงเทพจะถูกเก็บเป็น 19:00 UTC ถ้า server อยู่ลอนดอน
+รอบจะโผล่ที่ตีสอง และ "รอมานานเท่าไหร่" ทั้งกระดานจะเพี้ยนไป 7 ชั่วโมง ฟอร์มจึงส่ง
+`new Date().getTimezoneOffset()` มาด้วย และ validator **ไม่ default เป็น UTC** — ไม่มี
+offset คือ error เพราะบั๊กแบบที่ทุกช่องบนฟอร์มดูถูกต้องคือบั๊กที่ไม่มีใครแจ้ง
+
 ### Realtime
 
 `useRealtimeBoard` ไม่เอา payload จาก realtime มาแปะหน้าจอตรง ๆ แต่ใช้เป็นสัญญาณ
@@ -123,7 +256,8 @@ maintain กติกาคิวซ้ำอีกชุดฝั่ง client 
 
 `src/lib/domain/` ไม่รู้จัก Supabase และไม่รู้จัก React เลย รับ plain object ออกมาเป็น
 plain object — กติกาความยุติธรรมของคิวและสูตรหารเงินจึงเทสต์ได้ตรง ๆ และเถียงกันได้
-โดยไม่ต้องเปิดฐานข้อมูล ตอนนี้มีเทสต์ 57 เคสครอบทั้งสองตัว
+โดยไม่ต้องเปิดฐานข้อมูล ตอนนี้มีเทสต์ 44 เคสครอบทั้งสองตัว — นับ money helper กับ
+กติกาการเข้ารอบใน `domain/` ด้วยเป็น 63
 
 **Queue engine** (`queue-engine.ts`) — เรียงคิวตามเวลารอ แล้วตามจำนวนเกมที่เล่นไป
 จัด 4 คนลงคอร์ทที่ว่าง และรองรับให้หัวหน้าสลับ/เปลี่ยนตัวเองก่อนเริ่ม
@@ -138,7 +272,10 @@ plain object — กติกาความยุติธรรมของค
 
 - LINE webhook, push notification (waitlist เลื่อน / สรุปยอด)
 - การสร้าง QR พร้อมเพย์จริง — ตอนนี้เป็น placeholder โดยตั้งใจ
-- Flow สร้างก๊วน / เข้าร่วมด้วยลิงก์เชิญ / RSVP / เช็คอิน (FR-1 ถึง FR-3)
+- RSVP ล่วงหน้าแยกจากเช็คอินหน้างาน (US-2.2 vs US-2.3) — ตอนนี้กดเข้ารอบได้ทางเดียว
+  และนับเป็นเช็คอินทันที
+- แก้ไข/ปิดรอบและแก้ตั้งค่าก๊วนหลังสร้าง — สร้างได้แล้ว แต่ยังแก้ทีหลังไม่ได้
+- สถิติสะสมข้ามรอบในหน้าโปรไฟล์ — ตอนนี้แสดงเฉพาะรอบที่เปิดอยู่
 - waitlist auto-promote (US-2.4) — schema รองรับแล้วแต่ยังไม่มี logic
 
 ---
@@ -183,5 +320,7 @@ PRD บอก *"ลูกที่เกินหารใน 4 คนของ�
 ## หมายเหตุ
 
 - `AGENTS.md` ถูกเขียนโดย `next dev` เอง — commit ไปพร้อมงานได้เลย ไม่ต้องลบ
-- npm cache ของโปรเจกต์นี้ชี้ไปที่ `D:/npm-cache` เพราะไดรฟ์ C: เต็ม
-  ถ้าย้ายเครื่องให้ลบ `--cache` flag ออกได้
+- **npm cache ไม่ใช่การตั้งค่าของโปรเจกต์นี้** — ไม่มีอะไรใน repo อ้างถึงมัน
+  เครื่องที่พัฒนาอยู่ตอนแรกไดรฟ์ C: เต็ม จึงเคยเลี่ยงด้วย `--cache` flag ต่อครั้ง
+  ตอนนี้ย้ายไปตั้งถาวรที่ `~/.npmrc` (`cache=D:\npm-cache`) แทนแล้ว มีผลกับทุก
+  โปรเจกต์บนเครื่องนั้น ไม่ต้องใส่ flag อีก — และเครื่องอื่นไม่ต้องทำอะไรเลย

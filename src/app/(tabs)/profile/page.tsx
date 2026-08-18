@@ -1,100 +1,162 @@
+import Link from "next/link";
+
+import { InviteLink } from "@/components/guan/invite-link";
 import { LiffStatusNote } from "@/components/profile/liff-status-note";
-import { TopBar } from "@/components/top-bar";
-import { Avatar, Card, SectionTitle, SkillChip } from "@/components/ui";
-import { SKILL_LEVELS } from "@/lib/domain/types";
+import { ThemeSwitch } from "@/components/theme-switch";
 import {
-  SAMPLE_FINISHED_MATCHES,
-  SAMPLE_SESSION,
-  samplePlayer,
-} from "@/lib/sample/session";
+  EmptyPanel,
+  ghostButton,
+  Pill,
+  primaryButton,
+  SectionHeading,
+  StatTile,
+} from "@/components/ui";
+import { loadBoard, loadCostData, loadProfile } from "@/lib/data/source";
+import { tryComputeCostShares } from "@/lib/domain/cost-engine";
+import { inviteUrl } from "@/lib/domain/invite";
+import { baht } from "@/lib/domain/money";
+import { publicEnv } from "@/lib/env";
+import { requestOrigin } from "@/lib/origin";
+import { getThemePreference } from "@/lib/theme";
 
 export const metadata = { title: "โปรไฟล์ — Baddy" };
+
+export const dynamic = "force-dynamic";
 
 /**
  * Player profile (PRD FR-9, US-5.1/5.2) — the seed of the Phase 2+ player network.
  *
- * The profile belongs to the player, not to a guan, which is why the stats below
- * are framed as "across your guans" rather than per-club numbers.
+ * The profile belongs to the player, not to a guan, which is why the guan list
+ * is the body of the screen rather than a footnote. The stats are scoped to
+ * tonight and say so: lifetime numbers need an attendance history this scaffold
+ * does not read yet, and a made-up "18 ครั้งที่มา" would be worse than none.
  */
-export default function ProfilePage() {
-  const me = samplePlayer("champ");
-  const gamesThisSession = SAMPLE_FINISHED_MATCHES.filter((m) =>
-    m.playerIds.includes(me.id),
+export default async function ProfilePage() {
+  const { viewer, guans } = await loadProfile();
+  const { board } = await loadBoard();
+  const cost = await loadCostData();
+  const theme = await getThemePreference();
+  const origin = await requestOrigin();
+
+  const me =
+    board?.roster.find((e) => e.player.id === viewer.playerId)?.player ?? null;
+  const displayName = me?.displayName ?? "ยังไม่ได้เข้าสู่ระบบ";
+
+  const gamesThisSession = (cost.data?.input.matches ?? []).filter((m) =>
+    m.playerIds.includes(viewer.playerId ?? ""),
   ).length;
 
+  const computed = cost.data ? tryComputeCostShares(cost.data.input) : null;
+  const myShare = computed?.ok
+    ? computed.result.shares.find((s) => s.playerId === viewer.playerId)
+    : undefined;
+
   return (
-    <>
-      <TopBar left="👤 โปรไฟล์ผู้เล่น" right="ใช้ได้ทุกก๊วน" />
-
-      <main className="px-4 pt-4">
-        <Card className="mb-3 flex items-center gap-3 !p-4">
-          <Avatar name={me.name} color={me.color} size={52} />
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 font-display text-lg font-semibold">
-              {me.name}
-              <SkillChip level={me.skill} />
-            </div>
-            <div className="text-[11.5px] text-muted">
-              โปรไฟล์ผูกกับบัญชี LINE ของคุณ — เปลี่ยนก๊วนแล้วประวัติไม่หาย
-            </div>
+    <main className="flex flex-col gap-4 px-4 pt-[18px] pb-2">
+      <section className="flex items-center gap-3.5 rounded-[20px] border border-line bg-gradient-to-b from-raised to-surface p-[18px] shadow-card">
+        <span
+          className="flex h-15 w-15 shrink-0 items-center justify-center rounded-[20px] bg-accent-fill text-2xl font-bold text-on-accent"
+          aria-hidden
+        >
+          {displayName.charAt(0)}
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          <h1 className="truncate text-lg font-bold">{displayName}</h1>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Pill tone="accent">
+              {me?.skillLevel ? `มือ ${me.skillLevel}` : "ยังไม่ระบุมือ"}
+            </Pill>
+            <span className="text-[11px] text-muted">โปรไฟล์ใช้ข้ามก๊วนได้</span>
           </div>
-        </Card>
-
-        <SectionTitle note="รอบนี้">สถิติ</SectionTitle>
-        <div className="mb-4 grid grid-cols-3 gap-2">
-          <Stat label="เกมที่ลง" value={gamesThisSession} />
-          <Stat label="ก๊วนที่อยู่" value={1} />
-          <Stat label="ครั้งที่มา" value={7} />
         </div>
+      </section>
 
-        <SectionTitle note="มือ">ระดับฝีมือ</SectionTitle>
-        <Card className="mb-4">
-          <div className="flex flex-wrap gap-1.5">
-            {SKILL_LEVELS.map((level) => (
-              <span
-                key={level}
-                className={`rounded-lg px-2 py-1 text-[11.5px] ${
-                  level === me.skill
-                    ? "bg-primary font-semibold text-white"
-                    : "bg-chip text-muted"
-                }`}
+      <section className="flex flex-col gap-2.5">
+        <SectionHeading note="รอบนี้">สถิติ</SectionHeading>
+        <div className="grid grid-cols-3 gap-2.5">
+          <StatTile label="เกมที่ลง" value={gamesThisSession} />
+          <StatTile
+            label="ยอดรอบนี้"
+            value={myShare ? baht(myShare.total) : "—"}
+          />
+          <StatTile label="ก๊วนที่อยู่" value={guans.length} accent />
+        </div>
+        <p className="text-[11px] leading-relaxed text-faint text-pretty">
+          สถิติสะสมข้ามรอบ (ครั้งที่มา · เกมทั้งหมด) จะมาในเฟสถัดไป ตอนนี้แสดงเฉพาะรอบที่เปิดอยู่
+        </p>
+      </section>
+
+      <section className="flex flex-col gap-2">
+        <SectionHeading note={`${guans.length} ก๊วน`}>ก๊วนของฉัน</SectionHeading>
+
+        {guans.length === 0 ? (
+          <EmptyPanel>
+            ยังไม่ได้เข้าร่วมก๊วนไหน — เปิดลิงก์เชิญจากหัวหน้าก๊วน หรือสร้างก๊วนของตัวเอง
+          </EmptyPanel>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {guans.map((guan) => (
+              <li
+                key={guan.guanId}
+                className="flex flex-col gap-2.5 rounded-[16px] border border-line-soft bg-inset-soft px-3.5 py-2.5"
               >
-                {level}
-              </span>
+                <div className="flex min-h-9 items-center gap-3">
+                  <span
+                    className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[11px] bg-chip text-[13px] font-semibold"
+                    aria-hidden
+                  >
+                    {guan.name.charAt(0)}
+                  </span>
+                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <span className="truncate text-[13.5px] font-medium">
+                      {guan.name}
+                    </span>
+                    <span className="truncate text-[11px] text-faint">
+                      {guan.homeVenue ?? "ยังไม่ได้ตั้งสนามประจำ"}
+                    </span>
+                  </span>
+                  <Pill tone={guan.role === "organizer" ? "accent" : "quiet"}>
+                    {guan.role === "organizer" ? "หัวหน้า" : "สมาชิก"}
+                  </Pill>
+                </div>
+
+                {/* Only the organizer is offered the link. Any member can read
+                    the code — `guans_select` is membership-wide and Postgres has
+                    no column-level RLS — so this is where the invite is *offered*,
+                    not where it is kept. `rotate_invite_code` is the remedy. */}
+                {guan.role === "organizer" ? (
+                  <InviteLink
+                    guanId={guan.guanId}
+                    guanName={guan.name}
+                    url={inviteUrl({
+                      code: guan.inviteCode,
+                      liffId: publicEnv.liffId,
+                      origin,
+                    })}
+                    canRotate={!viewer.preview}
+                  />
+                ) : null}
+              </li>
             ))}
-          </div>
-          <p className="mt-2.5 text-[11px] leading-relaxed text-muted">
-            ⚠️ สเกลระดับฝีมือยังไม่ยืนยัน (PRD §11) — ชุดนี้อ้างอิงจาก mockup
-            รอสรุปก่อนเปิดใช้กับผู้เล่นจริง
-          </p>
-        </Card>
+          </ul>
+        )}
 
-        <SectionTitle>ก๊วนของฉัน</SectionTitle>
-        <Card className="mb-4 flex items-center justify-between">
-          <div>
-            <div className="text-[13.5px] font-medium">
-              ก๊วน {SAMPLE_SESSION.guanName}
-            </div>
-            <div className="text-[11.5px] text-muted">
-              {SAMPLE_SESSION.venue} · หัวหน้าก๊วน
-            </div>
-          </div>
-          <span className="rounded-lg bg-court-bg px-2 py-1 text-[11px] font-semibold text-court">
-            organizer
-          </span>
-        </Card>
+        <div className="mt-1 flex gap-2.5">
+          <Link href="/new-guan" className={`${primaryButton} flex-1`}>
+            สร้างก๊วน
+          </Link>
+          <Link href="/join" className={`${ghostButton} flex-1`}>
+            เข้าร่วมด้วยลิงก์
+          </Link>
+        </div>
+      </section>
 
-        <LiffStatusNote />
-      </main>
-    </>
-  );
-}
+      <section className="flex flex-col gap-2">
+        <SectionHeading note="ทั้งแอป">ธีม</SectionHeading>
+        <ThemeSwitch preference={theme} />
+      </section>
 
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-2xl border border-line bg-surface px-3 py-2.5 text-center">
-      <div className="font-mono text-xl font-semibold tabular-nums">{value}</div>
-      <div className="text-[11px] text-muted">{label}</div>
-    </div>
+      <LiffStatusNote />
+    </main>
   );
 }

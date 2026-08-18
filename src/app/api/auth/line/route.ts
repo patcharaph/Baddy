@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 
 import { signInWithLineIdToken } from "@/lib/auth/line-session";
 import { hasSupabaseConfig } from "@/lib/env";
+import { getSupabaseServerClient } from "@/lib/supabase/server";
 
 /**
  * Exchanges a LIFF ID token for a Supabase session cookie.
@@ -10,6 +11,25 @@ import { hasSupabaseConfig } from "@/lib/env";
  * is comes back from LINE — a client-supplied userId would let anyone claim any
  * account.
  */
+/**
+ * Ends the Supabase session.
+ *
+ * Exists because signing out of LINE in a browser tab does not touch the httpOnly
+ * cookies this route set — and on the desktop this app now supports, "sign out"
+ * has to mean it. Inside LINE there is one account per phone and this is close to
+ * a no-op; on a shared laptop it is the whole point.
+ */
+export async function DELETE() {
+  if (!hasSupabaseConfig) {
+    return NextResponse.json({ ok: true });
+  }
+
+  const supabase = await getSupabaseServerClient();
+  await supabase.auth.signOut();
+
+  return NextResponse.json({ ok: true });
+}
+
 export async function POST(request: Request) {
   if (!hasSupabaseConfig) {
     return NextResponse.json(

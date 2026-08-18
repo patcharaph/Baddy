@@ -11,9 +11,11 @@ import type {
   BoardView,
   LiveCourtView,
   PlayerView,
+  RosterEntryView,
   SessionView,
+  ShuttleSummaryView,
 } from "@/lib/data/types";
-import { toQueueEntries } from "@/lib/data/mappers";
+import { sortRoster, toQueueEntries } from "@/lib/data/mappers";
 
 import {
   CHECKED_IN_COUNT,
@@ -24,7 +26,9 @@ import {
   SAMPLE_PARTICIPANTS,
   SAMPLE_PLAYERS,
   SAMPLE_QUEUE_CANDIDATES,
+  SAMPLE_ROSTER,
   SAMPLE_SESSION,
+  SAMPLE_SHUTTLE_ENTRIES,
   SAMPLE_SHUTTLE_LOGS,
 } from "./session";
 
@@ -44,11 +48,13 @@ const session: SessionView = {
   guanId: "sample-guan",
   guanName: SAMPLE_SESSION.guanName,
   venue: SAMPLE_SESSION.venue,
-  startsAt: new Date(SAMPLE_NOW).toISOString(),
-  endsAt: null,
+  // 20:00–23:00, with SAMPLE_NOW sitting at 21:30 — mid-session, which is when
+  // every screen here has something to show.
+  startsAt: new Date(SAMPLE_NOW - 90 * 60_000).toISOString(),
+  endsAt: new Date(SAMPLE_NOW + 90 * 60_000).toISOString(),
   courtCount: SAMPLE_SESSION.courtCount,
   courtTotal: SAMPLE_SESSION.courtTotal,
-  capacity: null,
+  capacity: SAMPLE_SESSION.capacity,
   splitMode: SAMPLE_SESSION.splitMode,
   buffetRate: SAMPLE_SESSION.buffetRate,
   womenRate: SAMPLE_SESSION.womenRate,
@@ -65,14 +71,51 @@ const courts: LiveCourtView[] = SAMPLE_COURTS.map((c) => ({
   playerIds: [...c.sideA, ...c.sideB],
 }));
 
+const byId = new Map(players.map((p) => [p.id, p]));
+
+const roster: RosterEntryView[] = sortRoster(
+  SAMPLE_ROSTER.flatMap((entry) => {
+    const player = byId.get(entry.playerId);
+    return player
+      ? [
+          {
+            player,
+            status: entry.status,
+            checkInAt: entry.checkInAt,
+            waitlistPosition: entry.waitlistPosition,
+          },
+        ]
+      : [];
+  }),
+);
+
+const shuttles: ShuttleSummaryView = {
+  count: SAMPLE_SHUTTLE_ENTRIES.length,
+  unitPrice: SAMPLE_SESSION.shuttleUnitPrice,
+  recent: [...SAMPLE_SHUTTLE_ENTRIES]
+    .reverse()
+    .slice(0, 6)
+    .map((e) => ({
+      id: e.id,
+      loggedAt: e.loggedAt,
+      courtNo: e.courtNo,
+      matchNo: e.matchNo,
+      count: 1,
+    })),
+};
+
 export const SAMPLE_BOARD: BoardView = {
   session,
   players,
   courts,
   queue: toQueueEntries(SAMPLE_QUEUE_CANDIDATES, SAMPLE_NOW),
-  waitlist: [],
+  waitlist: roster
+    .filter((e) => e.status === "waitlist")
+    .map((e) => e.player),
+  roster,
   checkedInCount: CHECKED_IN_COUNT,
   freeCourts: [4],
+  shuttles,
 };
 
 export const SAMPLE_COST_DATA: SessionCostData = {
@@ -96,3 +139,23 @@ export const SAMPLE_BOARD_NOW = SAMPLE_NOW;
 
 /** The player the sample session treats as "you". */
 export const SAMPLE_ME_ID = "champ";
+
+/**
+ * A guan member who is not in tonight's session.
+ *
+ * Every other sample player is on the roster, which makes the one screen a
+ * player sees *before* they join unreachable. This id is what the `newcomer`
+ * preview looks through — it deliberately appears in no court, no queue and no
+ * cost share, so the join flow is the only thing on the screen.
+ */
+export const SAMPLE_NEWCOMER_ID = "nut";
+
+/**
+ * The invite code the sample guan answers to.
+ *
+ * Shaped like a real one (URL-safe base64, 12 characters) so the join screen can
+ * be reviewed without a Supabase project — `/join/SAMPLE-guan1` resolves, and
+ * anything else on that route lands on the "this link is dead" state, which is
+ * the half of the screen that is otherwise hard to see on purpose.
+ */
+export const SAMPLE_INVITE_CODE = "SAMPLE-guan1";
