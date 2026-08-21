@@ -22,6 +22,7 @@ import {
   requireSelfOrOrganizer,
 } from "@/lib/auth/guard";
 import { PREVIEW_ROLE_COOKIE, type PreviewRole } from "@/lib/data/viewer";
+import { promoteWaitlist } from "@/lib/data/waitlist";
 import {
   validateGuanDraft,
   validateSessionDraft,
@@ -282,6 +283,11 @@ export async function setCheckIn(
     .eq("player_id", playerId);
 
   if (error) fail("เช็คอิน", error.message);
+
+  // Somebody leaving is the ordinary way a place comes free, which is the whole
+  // of US-2.4. Only on the way out: checking someone in takes a place rather
+  // than opening one.
+  if (!present) await promoteWaitlist(sessionId);
 
   revalidateSession();
 }
@@ -545,6 +551,10 @@ export async function updateSession(
   if (!saved) {
     return formError("แก้ไขรอบไม่สำเร็จ: ไม่พบรอบนี้ หรือคุณไม่มีสิทธิ์แก้");
   }
+
+  // Raising the quota is the other way a place comes free (US-2.4). Lowering it
+  // promotes nobody and takes nobody out — see the note on `validateSessionEdit`.
+  await promoteWaitlist(s.sessionId);
 
   revalidateSession();
   revalidatePath(`/session/${s.sessionId}`);

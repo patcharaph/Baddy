@@ -222,6 +222,10 @@ function OrganizerTasks({
 }) {
   return (
     <>
+      {/* Since US-2.4 the organizer has nothing to do about a waitlist: a place
+          coming free promotes the next player on its own. So "มีที่ว่างแต่ยังมีคนรอ"
+          is no longer a job — it is a state that should not last, and the only
+          one of these worth marking urgent. */}
       <TaskCard
         href="/checkin"
         urgent={waitlistCount > 0 && (freeSeats === null || freeSeats > 0)}
@@ -233,11 +237,9 @@ function OrganizerTasks({
         detail={
           waitlistCount === 0
             ? "โควตายังไม่เต็ม"
-            : freeSeats === null
-              ? "ยังไม่ได้ตั้งโควตา — เลื่อนขึ้นได้เลย"
-              : freeSeats > 0
-                ? `มีที่ว่าง ${freeSeats} ที่ — เลื่อนขึ้นให้เลย`
-                : "โควตาเต็ม รอมีคนกลับก่อน"
+            : freeSeats === null || freeSeats > 0
+              ? "มีที่ว่างแต่ยังมีคนรออยู่ — ปกติระบบเลื่อนขึ้นให้เอง กดดูถ้าค้าง"
+              : "โควตาเต็ม — มีคนกลับหรือเพิ่มโควตาเมื่อไหร่ ระบบเลื่อนขึ้นให้เอง"
         }
         badge={waitlistCount > 0 ? "ดู" : "เช็คอิน"}
         badgeTone={waitlistCount > 0 ? "accent" : "quiet"}
