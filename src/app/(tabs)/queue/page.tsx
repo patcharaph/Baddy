@@ -47,17 +47,30 @@ export default async function QueuePage() {
 
   return (
     <>
-      <main className="flex flex-col gap-3.5 px-4 pt-[18px] pb-2">
+      {/* The one screen that has earned the desktop width: courts are cards with
+          two dimensions, not rows with a label at one edge, so putting them beside
+          each other is what the room is for. Declared only when there is a second
+          card to put beside the first — on a one-court session the wide frame
+          would be 460px of nothing next to a card already as wide as it wants to
+          be. See the shell in `(tabs)/layout.tsx` for what reads this. */}
+      <main
+        data-board={cards.length > 1 ? "" : undefined}
+        className="flex flex-col gap-3.5 px-4 pt-[18px] pb-2"
+      >
         <ScreenTitle
           title="กระดานคิว"
           subtitle={`อัปเดตสด · ${courts.length}/${session.courtCount} คอร์ทกำลังเล่น`}
         />
 
-        <div className="flex flex-col gap-2.5">
+        {/* Two-up from `lg`, where the frame is wide enough that each card is
+            *wider* than it is on a phone rather than squeezed to fit beside its
+            neighbour. Four courts become two rows, so the board and the queue
+            under it are one screenful instead of a scroll. */}
+        <div className="grid gap-2.5 lg:grid-cols-2">
           {cards.map(({ courtNo, court }) => (
             <article
               key={courtNo}
-              className="overflow-hidden rounded-[18px] border border-line bg-surface shadow-card"
+              className="flex flex-col overflow-hidden rounded-[18px] border border-line bg-surface shadow-card"
             >
               <div className="flex items-center gap-2.5 border-b border-line-soft px-3.5 py-2.5">
                 <span className="font-mono text-[13px] font-bold text-accent">
@@ -93,8 +106,11 @@ export default async function QueuePage() {
                 </div>
               ) : (
                 /* An empty court is one line, not four empty boxes — the space it
-                   would take is space the courts in play need more. */
-                <p className="px-3.5 py-4 text-center text-[12px] text-faint">
+                   would take is space the courts in play need more. Beside a court
+                   in play it has that height whether it wants it or not, so there
+                   it centres in the row rather than sitting at the top of an empty
+                   box; on a phone there is no spare height and nothing moves. */
+                <p className="flex flex-1 items-center justify-center px-3.5 py-4 text-center text-[12px] text-faint">
                   {isOrganizer
                     ? "ยังไม่มีใครลงคอร์ทนี้ — กดสุ่มแมตช์ถัดไปด้านล่าง"
                     : "ยังไม่มีใครลงคอร์ทนี้"}
@@ -119,7 +135,11 @@ export default async function QueuePage() {
           {queue.length === 0 ? (
             <EmptyPanel>ไม่มีใครรอคิวอยู่</EmptyPanel>
           ) : (
-            <ol className="flex flex-col gap-2">
+            /* Two columns from `lg` for the same reason as the courts: one column
+               of 920px rows would be a name at one edge and a wait time at the
+               other with a metre of nothing between them. Order reads across then
+               down, which is legible because every row carries its own number. */
+            <ol className="grid gap-2 lg:grid-cols-2">
               {queue.map((entry, index) => {
                 const player = byId.get(entry.playerId);
                 if (!player) return null;
